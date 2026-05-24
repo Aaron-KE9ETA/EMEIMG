@@ -74,7 +74,9 @@ S: 'Shape' instructions
 9 Star
 A yagi antenna
 B dish antenna
-C Moon
+C Radio transciever
+D Radio waves
+E Moon
 
 Data Structures for shapes
 
@@ -174,8 +176,27 @@ S is scale, applied as an integer multiplier to the default geometry.
 
 **** are unused wildcard values.
 
+B: Dish Antenna
+ICBXXYYOS****
 
-B-C haven't been implemented yet
+XX,YY is the origin point of the Dish Antenna macro.
+
+In orientation 0:
+- draw a quarter circle in quadrant 3
+- the quarter circle has radius 40 pixels at scale 1
+- draw two lines along the horizontal and vertical axes from the origin to the arc
+- draw a circle of radius 5 pixels at scale 1 in the middle of the quarter circle
+
+O = facing direction
+0 = dish faces left
+1 = dish faces right
+
+S is scale, applied as an integer multiplier to the default geometry.
+
+**** are unused wildcard values.
+
+
+C-E haven't been implemented yet
 
 
 '''
@@ -242,10 +263,11 @@ def load_commands():
         "378A0A8240000", #Arrow Cyan draw 3 currently invalid
         "0030000H0AF00", #Filled Rectangle Black draw 0
         "1L0AJAJKE9ETA", #Callsign Purple draw 1
-        "2432020H05000", #Filled Rectangle Green draw 2
+        #"2432020H05000", #Filled Rectangle Green draw 2
         "4G9A0A2350000", #Gold star draw 4
         "5651A1AZ20000", #Yellow Circle Filled draw 5
-        "68A8080220000", #Magenta Yagi orientation 2 draw 6
+        "68A8080220000", #Magenta Yagi drawa 6 orientation 2
+        "74BA0A0010000", #Green Dish antenna scale 1 draw 7
     ]
 
 #Parsing commands
@@ -403,6 +425,19 @@ def parse(packet):
             "raw": packet,
         }
 
+    if shape == "B":
+        return {
+            "op": "DISH",
+            "index": instruction_index,
+            "color": color,
+            "x": b36_pair(data[0:2]),
+            "y": b36_pair(data[2:4]),
+            "orientation": b36(data[4]),
+            "scale": b36(data[5]),
+            "raw": packet,
+        }
+        
+        
     return {
         "op": "UNKNOWN",
         "index": instruction_index,
@@ -464,6 +499,10 @@ def render(parsed, draw):
     
     elif op == "YAGI":
         render_yagi(parsed, draw)
+    
+    
+    elif op == "DISH":
+        render_dish(parsed, draw)
 
     elif op == "UNKNOWN":
         print(f"Unknown packet ignored: {parsed['raw']}")
@@ -746,7 +785,89 @@ def render_yagi(parsed, draw):
             width=3,
         )
         
+def render_dish(parsed, draw):
+    x = parsed["x"]
+    y = parsed["y"]
 
+    facing = parsed["orientation"] % 2
+    scale = parsed["scale"]
+
+    if scale <= 0:
+        print(f"Warning: zero-scale dish ignored: {parsed['raw']}")
+        return
+
+    radius = 40 * scale
+    hub_radius = 5 * scale
+    mast_length = 30 * scale
+
+    # facing 0 = left
+    # facing 1 = right
+    flip = -1 if facing == 0 else 1
+
+    arc_points = []
+
+    # Left-facing default uses quadrant 3-ish visual:
+    # arc spans from vertical lower point to horizontal left/right point.
+    for angle in range(90, 181, 5):
+        theta = math.radians(angle)
+
+        dx = round(radius * math.cos(theta)) * flip
+        dy = round(radius * math.sin(theta))
+
+        arc_points.append((x + dx, y + dy))
+
+    draw.line(
+        arc_points,
+        fill=parsed["color"],
+        width=3,
+    )
+
+    # Radial support lines from hub to arc endpoints
+    end1_dx = -radius * flip
+    end1_dy = 0
+
+    end2_dx = 0
+    end2_dy = radius
+
+    draw.line(
+        (x, y, x + end1_dx, y + end1_dy),
+        fill=parsed["color"],
+        width=3,
+    )
+
+    draw.line(
+        (x, y, x + end2_dx, y + end2_dy),
+        fill=parsed["color"],
+        width=3,
+    )
+
+    # Mast from midpoint of arc straight down
+    mid_local_x = round((-radius / math.sqrt(2)) * flip)
+    mid_local_y = round(radius / math.sqrt(2))
+
+    draw.line(
+        (
+            x + mid_local_x,
+            y + mid_local_y,
+            x + mid_local_x,
+            y + mid_local_y + mast_length,
+        ),
+        fill=parsed["color"],
+        width=3,
+    )
+
+    # Center hub circle
+    draw.ellipse(
+        (
+            x - hub_radius,
+            y - hub_radius,
+            x + hub_radius,
+            y + hub_radius,
+        ),
+        fill=parsed["color"],
+    )
+    
+    
 #Phyton Run Stuff
 def main():
     img = Image.new("RGB", CANVAS_SIZE, BACKGROUND)
@@ -767,6 +888,8 @@ def main():
         render(parsed, draw)
 
     img.save("output_image.png")
+    img.close()
+    print("Image reconstruction complete.")
 
 
 if __name__ == "__main__":
