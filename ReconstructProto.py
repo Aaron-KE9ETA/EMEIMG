@@ -3,6 +3,7 @@ Created on May 23, 2026
 
 @author: Aaron Cocanower KE9ETA
 '''
+from lutris.util.wine import dxvk
 
 '''
 The Canvas autopopulates at resolution 720x480 or K0xDC Base-36
@@ -150,9 +151,31 @@ Scale factor being a multiplier to scale them up by int multiplication
 * are unused wildcard values
 
 
+A: Yagi Antenna
+ICAXXYYOS****
+
+XX,YY is the origin point of the yagi macro.
+
+In orientation 0, the main axis is drawn from:
+(XX + 30, YY + 0) to (XX + 0, YY + 100)
+
+The yagi also draws 4 elements perpendicular to the main axis,
+spaced evenly along that axis.
+
+Default unscaled element length is 15 pixels total.
+
+O is orientation:
+0 = default
+1 = 90° clockwise
+2 = 180°
+3 = 270°
+
+S is scale, applied as an integer multiplier to the default geometry.
+
+**** are unused wildcard values.
 
 
-A-C haven't been implemented yet
+B-C haven't been implemented yet
 
 
 '''
@@ -198,6 +221,7 @@ PALETTE = {
     "W": "dimgray",
 }
 
+#Convert base-36 to dec
 def b36(value):
     return int(value, 36)
 
@@ -212,6 +236,7 @@ def void_packet(packet, reason):
         "raw": packet,
     }
 
+#intdef manual loading
 def load_commands():
     return [
         "378A0A8240000", #Arrow Cyan draw 3 currently invalid
@@ -220,8 +245,10 @@ def load_commands():
         "2432020H05000", #Filled Rectangle Green draw 2
         "4G9A0A2350000", #Gold star draw 4
         "5651A1AZ20000", #Yellow Circle Filled draw 5
+        "68A8080220000", #Magenta Yagi orientation 2 draw 6
     ]
 
+#Parsing commands
 def parse(packet):
     packet = packet.strip().upper()
 
@@ -362,7 +389,19 @@ def parse(packet):
             "radius": b36(data[4]),
             "scale": b36(data[5]),
             "raw": packet,
-    }
+        }
+    
+    if shape == "A":
+        return {
+            "op": "YAGI",
+            "index": instruction_index,
+            "color": color,
+            "x": b36_pair(data[0:2]),
+            "y": b36_pair(data[2:4]),
+            "orientation": b36(data[4]),
+            "scale": b36(data[5]),
+            "raw": packet,
+        }
 
     return {
         "op": "UNKNOWN",
@@ -422,10 +461,16 @@ def render(parsed, draw):
     
     elif op == "STAR":
         render_star(parsed, draw)
+    
+    elif op == "YAGI":
+        render_yagi(parsed, draw)
 
     elif op == "UNKNOWN":
         print(f"Unknown packet ignored: {parsed['raw']}")
 
+
+
+#Helpers
 def rotate_vector(dx, dy, orientation):
     orientation = orientation % 4
 
@@ -441,7 +486,21 @@ def rotate_vector(dx, dy, orientation):
     else:                     # 270 degrees clockwise
         return dy, -dx
     
-    
+
+def rotate_point(dx, dy, orientation):
+    orientation = orientation % 4
+
+    if orientation == 0:
+        return dx, dy
+    elif orientation == 1:
+        return -dy, dx
+    elif orientation == 2:
+        return -dx, -dy
+    else:
+        return dy, -dx
+
+
+#Render macros
 def render_circle(parsed, draw, fill=False):
     x = parsed["x"]
     y = parsed["y"]
@@ -626,6 +685,69 @@ def render_star(parsed, draw):
         width=3,
     )
 
+def render_yagi(parsed, draw):
+    x = parsed["x"]
+    y = parsed["y"]
+    orientation = parsed["orientation"] % 4
+    scale = parsed["scale"]
+
+    if scale <= 0:
+        print(f"Warning: zero-scale yagi ignored: {parsed['raw']}")
+        return
+
+    # Default geometry relative to origin XX,YY
+    start_local = (30 * scale, 0 * scale)
+    end_local = (0 * scale, 100 * scale)
+
+    # Rotate axis endpoints
+    dx1, dy1 = rotate_point(start_local[0], start_local[1], orientation)
+    dx2, dy2 = rotate_point(end_local[0], end_local[1], orientation)
+
+    x1, y1 = x + dx1, y + dy1
+    x2, y2 = x + dx2, y + dy2
+
+    # Draw main boom/axis
+    draw.line((x1, y1, x2, y2), fill=parsed["color"], width=3)
+
+    # Axis vector in local coords
+    ax = end_local[0] - start_local[0]
+    ay = end_local[1] - start_local[1]
+
+    length = math.sqrt(ax * ax + ay * ay)
+    if length == 0:
+        print(f"Warning: zero-length yagi axis ignored: {parsed['raw']}")
+        return
+
+    # Unit perpendicular vector
+    px = -ay / length
+    py = ax / length
+
+    element_length = 22 * scale
+    half_elem = element_length / 2
+
+    # 4 evenly spaced elements
+    for i in range(1, 5):
+        t = i / 5.0
+
+        cx = start_local[0] + ax * t
+        cy = start_local[1] + ay * t
+
+        ex1 = cx - px * half_elem
+        ey1 = cy - py * half_elem
+        ex2 = cx + px * half_elem
+        ey2 = cy + py * half_elem
+
+        rdx1, rdy1 = rotate_point(ex1, ey1, orientation)
+        rdx2, rdy2 = rotate_point(ex2, ey2, orientation)
+
+        draw.line(
+            (x + rdx1, y + rdy1, x + rdx2, y + rdy2),
+            fill=parsed["color"],
+            width=3,
+        )
+        
+
+#Phyton Run Stuff
 def main():
     img = Image.new("RGB", CANVAS_SIZE, BACKGROUND)
     draw = ImageDraw.Draw(img)
