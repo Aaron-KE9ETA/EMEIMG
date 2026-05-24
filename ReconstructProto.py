@@ -29,9 +29,37 @@ defined data structures so far include
 C:
 0 Black
 1 White
-2 Dark Gray
-3 Light Gray
-4 Red
+2 Gray
+3 RED
+4 Green
+5 BLUE
+6 YELLOW
+7 CYAN
+8 MAGENTA
+9 BROWN
+A TAN
+B Beige
+C Wheat
+D Sandybrown
+E Sienna
+F Chocolate
+G Gold
+H Crimson
+I Indigo
+J Hotpink
+K Orange
+L Purple
+M Lime
+N Aliceblue
+O Ivory
+P Lavender
+Q Mistyrose
+R Papayawhip
+S Seashell
+T Silver
+U Lightgray
+V Darkslategray
+W Dimgray
 
 S:
 
@@ -111,21 +139,62 @@ S is a scale factor
 * are unused wild card values
 
 
-9-B haven't been implemented yet
+9: Star
+IC9XXYYRS***** 
+XX,YY are coords 
+R is radius 
+S is scale factor 
+The star will be 4 lines N/S, E/W, NE/SW, SE/NW that intersect at point XX,YY of length 2R 
+with the intersection point being in the middle, 
+
+Scale factor being a multiplier to scale them up by int multiplication
+
+* are unused wildcard values
+
+A-C haven't been implemented yet
 
 
 '''
 from PIL import Image, ImageDraw
+import math
 
 CANVAS_SIZE = (720, 480)
 BACKGROUND = "white"
 
 PALETTE = {
-    0: "black",
-    1: "white",
-    2: "darkgray",
-    3: "lightgray",
-    4: "red",
+    "0": "black",
+    "1": "white",
+    "2": "gray",
+    "3": "red",
+    "4": "green",
+    "5": "blue",
+    "6": "yellow",
+    "7": "cyan",
+    "8": "magenta",
+    "9": "brown",
+    "A": "tan",
+    "B": "beige",
+    "C": "wheat",
+    "D": "sandybrown",
+    "E": "sienna",
+    "F": "chocolate",
+    "G": "gold",
+    "H": "crimson",
+    "I": "indigo",
+    "J": "hotpink",
+    "K": "orange",
+    "L": "purple",
+    "M": "lime",
+    "N": "aliceblue",
+    "O": "ivory",
+    "P": "lavender",
+    "Q": "mistyrose",
+    "R": "papayawhip",
+    "S": "seashell",
+    "T": "silver",
+    "U": "lightgray",
+    "V": "darkslategray",
+    "W": "dimgray",
 }
 
 def b36(value):
@@ -134,26 +203,37 @@ def b36(value):
 def b36_pair(value):
     return int(value, 36)
 
+def void_packet(packet, reason):
+    print(f"Invalid packet ignored: {reason}: {packet}")
+    return {
+        "op": "VOID",
+        "index": 35,
+        "raw": packet,
+    }
+
 def load_commands():
     return [
-        "3432020H05000",
-        "1030000H0AF00",
-        "220AAAAKE9ETA",
-        "048A0A8640000",
+        "378A0A8240000", #Arrow Cyan draw 3 currently invalid
+        "0030000H0AF00", #Rectangle Black draw 0
+        "1L0AAAAKE9ETA", #Callsign Purple draw 1
+        "2432020H05000", #Rectangle Green draw 2
+        "4G9A0A2350000", #Gold star draw 4
     ]
 
 def parse(packet):
     packet = packet.strip().upper()
 
     if len(packet) != 13:
-        raise ValueError(f"Packet must be 13 characters, got {len(packet)}: {packet}")
-
+        return void_packet(
+            packet,
+            f"expected 13 chars, got {len(packet)}"
+            )
     instruction_index = b36(packet[0])
-    color_index = b36(packet[1])
+    color_code = packet[1]
     shape = packet[2]
     data = packet[3:13]
 
-    color = PALETTE.get(color_index, "black")
+    color = PALETTE.get(color_code, "black")
 
     if shape == "0":
         return {
@@ -267,6 +347,18 @@ def parse(packet):
             "scale": b36(data[5]),
             "raw": packet,
         }
+        
+    if shape == "9":
+        return {
+            "op": "STAR",
+            "index": instruction_index,
+            "color": color,
+            "x": b36_pair(data[0:2]),
+            "y": b36_pair(data[2:4]),
+            "radius": b36(data[4]),
+            "scale": b36(data[5]),
+            "raw": packet,
+    }
 
     return {
         "op": "UNKNOWN",
@@ -279,8 +371,10 @@ def parse(packet):
 
 def render(parsed, draw):
     op = parsed["op"]
-
-    if op == "LINE":
+    if op == "VOID":
+        return
+    
+    elif op == "LINE":
         draw.line(
             (parsed["x1"], parsed["y1"], parsed["x2"], parsed["y2"]),
             fill=parsed["color"],
@@ -335,7 +429,10 @@ def render(parsed, draw):
         render_triangle(parsed, draw, fill=True)
 
     elif op == "ARROW":
-        render_arrow(parsed, draw)  
+        render_arrow(parsed, draw)
+    
+    elif op == "STAR":
+        render_star(parsed, draw)
 
     elif op == "UNKNOWN":
         print(f"Unknown packet ignored: {parsed['raw']}")
@@ -464,6 +561,54 @@ def render_arrow(parsed, draw):
 
     draw.polygon(tail, fill=parsed["color"])
     draw.polygon(head, fill=parsed["color"])
+    
+def render_star(parsed, draw):
+    x = parsed["x"]
+    y = parsed["y"]
+    r = parsed["radius"]
+    scale = parsed["scale"]
+
+    if scale <= 0:
+
+￼
+￼
+         print(f"Warning: zero-scale star ignored: {parsed['raw']}")
+        return
+
+    if r <= 0:
+        print(f"Warning: zero-radius star ignored: {parsed['raw']}")
+        return
+
+    radius = r * scale
+    diag = round(radius / math.sqrt(2))
+
+    # Vertical
+    draw.line(
+        (x, y - radius, x, y + radius),
+        fill=parsed["color"],
+        width=3,
+    )
+
+    # Horizontal
+    draw.line(
+        (x - radius, y, x + radius, y),
+        fill=parsed["color"],
+        width=3,
+    )
+
+    # Diagonal NW <-> SE
+    draw.line(
+        (x - diag, y - diag, x + diag, y + diag),
+        fill=parsed["color"],
+        width=3,
+    )
+
+    # Diagonal NE <-> SW
+    draw.line(
+        (x + diag, y - diag, x - diag, y + diag),
+        fill=parsed["color"],
+        width=3,
+    )
 
 def main():
     img = Image.new("RGB", CANVAS_SIZE, BACKGROUND)
