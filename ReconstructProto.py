@@ -3,21 +3,19 @@ Created on May 23, 2026
 
 @author: Aaron Cocanower KE9ETA
 '''
-from PIL import Image, ImageDraw
 
 '''
-The Canvas is 720x480 or K0xDC Base-36
+The Canvas autopopulates at resolution 720x480 or K0xDC Base-36
 
 data structure
-ICSXXXXXXXXXX
+ICSXXYY******
 where:
 I is index of instruction
 C is color of instruction
 S is 'Shape' or the type of instruction
+XX,YY is the point on the Canvas for the Origin point of the Instruction in Base-36
 
-X is the data spefications used to draw the image
-
-index of instructions go from 0 to Z in base-36
+*'s are wild cards for data relating to the instruction in base-36
 
 Color is the index of the color to draw in, based off a predefined pallette, yet to be determined
 
@@ -26,7 +24,7 @@ shapes
 
 defined data structures so far include
 
-C:
+C: Color instructions
 0 Black
 1 White
 2 Gray
@@ -61,7 +59,7 @@ U Lightgray
 V Darkslategray
 W Dimgray
 
-S:
+S: 'Shape' instructions
 
 0 6 char String
 1 Line
@@ -88,20 +86,20 @@ IC1XXYYxxyy**
 draws a line from coords XX, YY to xx,yy * wild card spaces are unused
 
 2: Rectangle Outline
-IC2XXYYxxyy***
+IC2XXYYxxyy**
 draws an outline Rectangle with opposite corners being coords XX, YY to xx,yy * wild card spaces are unused
 
 3: Rectangle Fill
-IC3XXYYxxyy***
+IC3XXYYxxyy**
 draws an filled Rectangle with opposite corners being  coords XX, YY to xx,yy * wild card spaces are unused
 
 4: Circle Outline
-IC4XXYYR*****
-draws a circle outline at XX, YY with Radius R
+IC4XXYYRS****
+draws a circle outline at XX, YY with Radius R, scale factor S
 
 5: Circle Fill
-IC5XXYYR*****
-draws a filled circle at XX, YY with Radius R
+IC5XXYYRS****
+draws a filled circle at XX, YY with Radius R, scale factor S
 
 6: Triangle outline
 IC6XXYYVLDROS
@@ -116,7 +114,7 @@ O is the Orientation of the shape 0-4 starting origin vertex up, rotating 90 deg
 
 S is scale, which is an integer multiplier to the vector
 
-7: Triangle outline
+7: Triangle Fill
 IC6XXYYVLDROS
 Draws a vertex at XXYY
 
@@ -130,7 +128,7 @@ O is the Orientation of the shape 0-4 starting origin vertex up, rotating 90 deg
 S is scale, which is an integer multiplier to the vector
 
 8: Arrow
-IC7XXYYOS****
+IC8XXYYOS****
 
 Draws a solid Arrowhead at vertix XXYY, then a rectangle tail 
 
@@ -140,7 +138,7 @@ S is a scale factor
 
 
 9: Star
-IC9XXYYRS***** 
+IC9XXYYRS****
 XX,YY are coords 
 R is radius 
 S is scale factor 
@@ -150,6 +148,9 @@ with the intersection point being in the middle,
 Scale factor being a multiplier to scale them up by int multiplication
 
 * are unused wildcard values
+
+
+
 
 A-C haven't been implemented yet
 
@@ -214,10 +215,11 @@ def void_packet(packet, reason):
 def load_commands():
     return [
         "378A0A8240000", #Arrow Cyan draw 3 currently invalid
-        "0030000H0AF00", #Rectangle Black draw 0
-        "1L0AAAAKE9ETA", #Callsign Purple draw 1
-        "2432020H05000", #Rectangle Green draw 2
+        "0030000H0AF00", #Filled Rectangle Black draw 0
+        "1L0AJAJKE9ETA", #Callsign Purple draw 1
+        "2432020H05000", #Filled Rectangle Green draw 2
         "4G9A0A2350000", #Gold star draw 4
+        "5651A1AZ20000", #Yellow Circle Filled draw 5
     ]
 
 def parse(packet):
@@ -290,8 +292,9 @@ def parse(packet):
             "x": b36_pair(data[0:2]),
             "y": b36_pair(data[2:4]),
             "r": b36(data[4]),
+            "scale": b36(data[5]),
             "raw": packet,
-        }
+    }
 
     if shape == "5":
         return {
@@ -301,6 +304,7 @@ def parse(packet):
             "x": b36_pair(data[0:2]),
             "y": b36_pair(data[2:4]),
             "r": b36(data[4]),
+            "scale": b36(data[5]),
             "raw": packet,
         }
 
@@ -395,25 +399,10 @@ def render(parsed, draw):
         )
 
     elif op == "CIRCLE_OUTLINE":
-        x = parsed["x"]
-        y = parsed["y"]
-        r = parsed["r"]
-
-        draw.ellipse(
-            (x - r, y - r, x + r, y + r),
-            outline=parsed["color"],
-            width=3,
-        )
+        render_circle(parsed, draw, fill=False)
 
     elif op == "CIRCLE_FILL":
-        x = parsed["x"]
-        y = parsed["y"]
-        r = parsed["r"]
-
-        draw.ellipse(
-            (x - r, y - r, x + r, y + r),
-            fill=parsed["color"],
-        )
+        render_circle(parsed, draw, fill=True)
 
     elif op == "TEXT":
         draw.text(
@@ -451,6 +440,36 @@ def rotate_vector(dx, dy, orientation):
 
     else:                     # 270 degrees clockwise
         return dy, -dx
+    
+    
+def render_circle(parsed, draw, fill=False):
+    x = parsed["x"]
+    y = parsed["y"]
+    r = parsed["r"]
+    scale = parsed["scale"]
+
+    if scale <= 0:
+        print(f"Warning: zero-scale circle ignored: {parsed['raw']}")
+        return
+
+    if r <= 0:
+        print(f"Warning: zero-radius circle ignored: {parsed['raw']}")
+        return
+
+    radius = r * scale
+
+    box = (
+        x - radius,
+        y - radius,
+        x + radius,
+        y + radius,
+    )
+
+    if fill:
+        draw.ellipse(box, fill=parsed["color"])
+    else:
+        draw.ellipse(box, outline=parsed["color"], width=3)
+        
 
 def render_triangle(parsed, draw, fill=False):
     x = parsed["x"]
@@ -569,10 +588,7 @@ def render_star(parsed, draw):
     scale = parsed["scale"]
 
     if scale <= 0:
-
-￼
-￼
-         print(f"Warning: zero-scale star ignored: {parsed['raw']}")
+        print(f"Warning: zero-scale star ignored: {parsed['raw']}")
         return
 
     if r <= 0:
