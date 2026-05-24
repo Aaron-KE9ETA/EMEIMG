@@ -70,7 +70,7 @@ def load_commands():
         "3G93G9LA10000", #Gold star draw 6 55,33 Dec draw 6 124,345
         "44CF59L010000", #Green Dish antenna scale 1 draw 3 454, 345 dec
         "5JC3G9L110000", #hot pink dish antenna scal 1 draw 4  125, 290 dec
-        "6659021Z30000",#Moon standin 324 73 dec draw 5
+        "66F9021320000",#Moon standin 324 73 dec draw 5
         "7G91J0X520000", #Gold star draw 6 55,33 Dec draw 6
         "8G9HH0Y520000", #Gold star draw 7 629,35 dec draw 7
         "9G94F3R520000", #Gold star draw 8 159,135 dec draw 8
@@ -269,7 +269,7 @@ def parse(packet):
             "y": b36_pair(data[2:4]),
             "scale": b36(data[4]),
             "raw": packet,
-    }
+        }
           
     if shape == "E":
         return {
@@ -283,8 +283,37 @@ def parse(packet):
             "start_angle": b36_pair(data[6:8]),
             "arc_degrees": b36_pair(data[8:10]),
             "raw": packet,
-            }
-          
+        }
+        
+        
+    if shape == "F":
+        crater_color_code = data[5]
+
+        return {
+            "op": "MOON",
+            "index": instruction_index,
+            "color": color,  # moon body color from packet C
+            "x": b36_pair(data[0:2]),
+            "y": b36_pair(data[2:4]),
+            "scale": b36(data[4]),
+            "crater_color": PALETTE.get(crater_color_code, "black"),
+            "raw": packet,
+        }
+    
+    
+    if shape == "G":
+        return {
+            "op": "DOUBLE_BOX",
+            "index": instruction_index,
+            "color": color,
+            "x1": b36_pair(data[0:2]),
+            "y1": b36_pair(data[2:4]),
+            "x2": b36_pair(data[4:6]),
+            "y2": b36_pair(data[6:8]),
+            "percent": b36_pair(data[8:10]),
+            "raw": packet,
+        }
+    
     return {
         "op": "UNKNOWN",
         "index": instruction_index,
@@ -360,7 +389,13 @@ def render(parsed, draw):
     
     elif op == "RADIO_WAVES":
         render_radio_waves(parsed, draw)
-        
+    
+    elif op == "MOON":
+        render_moon(parsed, draw)
+    
+    elif op == "DOUBLE_BOX":
+        render_double_box(parsed, draw)
+    
     elif op == "UNKNOWN":
         print(f"Unknown packet ignored: {parsed['raw']}")
 
@@ -865,7 +900,102 @@ def render_radio_waves(parsed, draw):
     draw_arc_line(draw, x, y, radius1, start_angle, arc_degrees, parsed["color"])
     draw_arc_line(draw, x, y, radius2, start_angle, arc_degrees, parsed["color"])
     draw_arc_line(draw, x, y, radius3, start_angle, arc_degrees, parsed["color"])
-    
+
+
+def render_moon(parsed, draw):
+    x = parsed["x"]
+    y = parsed["y"]
+    scale = parsed["scale"]
+    moon_color = parsed["color"]
+    crater_color = parsed["crater_color"]
+
+    if scale <= 0:
+        print(f"Warning: zero-scale moon ignored: {parsed['raw']}")
+        return
+
+    moon_radius = 36 * scale
+
+    # Moon body bounding box
+    left = x - moon_radius
+    top = y - moon_radius
+    right = x + moon_radius
+    bottom = y + moon_radius
+
+    # Draw filled moon body
+    draw.ellipse(
+        (left, top, right, bottom),
+        fill=moon_color,
+    )
+
+    diameter = moon_radius * 2
+
+    # Fixed crater pattern:
+    # (x_fraction, y_fraction, crater_radius_at_scale_1)
+    crater_points = [
+        (1/5,  1/4, 3),
+        (3/7,  5/8, 5),
+        (1/4,  7/9, 4),
+        (4/5,  2/7, 2),
+        (7/12, 1/5, 6),
+        (2/3,  2/5, 3),
+        (5/8,  3/4, 4),
+        (7/20, 3/7, 2),
+        (3/20, 5/9, 5),
+        (3/4,  3/5, 3),
+    ]
+
+    # Draw outlined crater circles
+    for fx, fy, base_radius in crater_points:
+        cx = left + round(diameter * fx)
+        cy = top + round(diameter * fy)
+        crater_radius = base_radius * scale
+
+        draw.ellipse(
+            (
+                cx - crater_radius,
+                cy - crater_radius,
+                cx + crater_radius,
+                cy + crater_radius,
+            ),
+            outline=crater_color,
+            width=3,
+        )
+
+def render_double_box(parsed, draw):
+    x1 = parsed["x1"]
+        
+    y1 = parsed["y1"]
+    x2 = parsed["x2"]
+    y2 = parsed["y2"]
+    percent = parsed["percent"]
+
+    # Normalize corners so the box works regardless of corner order
+    left = min(x1, x2)
+    right = max(x1, x2)
+    top = min(y1, y2)
+    bottom = max(y1, y2)
+
+    # Clamp percentage to 0-100
+    percent = max(0, min(100, percent))
+
+    height = bottom - top
+
+    split_y = top + round(height * (percent / 100))
+
+    # Outer box
+    draw.rectangle(
+        (left, top, right, bottom),
+        outline=parsed["color"],
+        width=3,
+    )
+
+    # Horizontal divider
+    draw.line(
+        (left, split_y, right, split_y),
+        fill=parsed["color"],
+        width=3,
+    )    
+
 #Phyton Run Stuff
 def main():
     img = Image.new("RGB", CANVAS_SIZE, BACKGROUND)
