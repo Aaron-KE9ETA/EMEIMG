@@ -1,0 +1,470 @@
+EMEIMG Reconstruct Prototype
+Created on May 23, 2026
+
+Author:
+    Aaron Cocanower KE9ETA
+
+Overview:
+    EMEIMG is an experimental vector-image reconstruction protocol intended
+    for transmitting simple image drawing instructions through JT65B-sized
+    13-character text packets.
+
+Canvas:
+    The receiver reconstructs the image on a fixed 720x480 pixel canvas.
+
+    Decimal:
+        Width  = 720
+        Height = 480
+
+    Base-36:
+        Width  = K0
+        Height = DC
+
+    Valid visible coordinate range:
+        X: 00 through JZ  -> 0 through 719 decimal
+        Y: 00 through DB  -> 0 through 479 decimal
+
+General Packet Structure:
+    ICSXXXXXXXXXX
+
+    I = instruction index / render order
+    C = color code
+    S = shape code
+    X = shape-specific payload data
+
+    Each packet is exactly 13 characters.
+
+    The instruction index I ranges from 0 to Z in base-36.
+    Packets are rendered in ascending instruction index order, regardless of
+    receive/load order.
+
+    Exact duplicate packets may be removed before rendering.
+
+    Most numeric fields are encoded in base-36.
+    Two-character coordinate fields such as XX or YY are decoded as one
+    two-character base-36 number.
+
+Text Packet Note:
+    Shape 0 uses the final six payload characters as literal text.
+    These characters may include spaces. Do not strip trailing spaces from
+    packet strings before parsing; only strip newline characters from file input.
+
+Color Codes:
+    0 = Black
+    1 = White
+    2 = Gray
+    3 = Red
+    4 = Green
+    5 = Blue
+    6 = Yellow
+    7 = Cyan
+    8 = Magenta
+    9 = Brown
+    A = Tan
+    B = Beige
+    C = Wheat
+    D = Sandybrown
+    E = Sienna
+    F = Chocolate
+    G = Gold
+    H = Crimson
+    I = Indigo
+    J = Hotpink
+    K = Orange
+    L = Purple
+    M = Lime
+    N = Aliceblue
+    O = Ivory
+    P = Lavender
+    Q = Mistyrose
+    R = Papayawhip
+    S = Seashell
+    T = Silver
+    U = Lightgray
+    V = Darkslategray
+    W = Dimgray
+
+Shape Codes:
+    0 = 6-character string
+    1 = Line
+    2 = Rectangle outline
+    3 = Rectangle fill
+    4 = Circle outline
+    5 = Circle fill
+    6 = Triangle outline
+    7 = Triangle fill
+    8 = Arrow
+    9 = Star
+    A = SemiCircle / Arc
+    B = Yagi antenna
+    C = Dish antenna
+    D = Radio transceiver
+    E = Radio waves
+    F = Moon
+    G = DoubleBox
+
+
+Shape Packet Formats:
+=====================
+
+0: 6-Character String
+---------------------
+    IC0XXYY******
+
+    XX,YY = text origin point
+    ****** = six literal text characters
+
+    Draws a six-character text string at coordinate XX,YY.
+    The text field may contain spaces.
+
+
+1: Line
+-------
+    IC1XXYYxxyy**
+
+    XX,YY = first endpoint
+    xx,yy = second endpoint
+    **    = unused wildcard values
+
+    Draws a line from XX,YY to xx,yy.
+
+
+2: Rectangle Outline
+--------------------
+    IC2XXYYxxyy**
+
+    XX,YY = first corner
+    xx,yy = opposite corner
+    **    = unused wildcard values
+
+    Draws an outlined rectangle using XX,YY and xx,yy as opposite corners.
+
+
+3: Rectangle Fill
+-----------------
+    IC3XXYYxxyy**
+
+    XX,YY = first corner
+    xx,yy = opposite corner
+    **    = unused wildcard values
+
+    Draws a filled rectangle using XX,YY and xx,yy as opposite corners.
+
+
+4: Circle Outline
+-----------------
+    IC4XXYYRS****
+
+    XX,YY = center point
+    R     = radius
+    S     = scale factor
+    ****  = unused wildcard values
+
+    Draws an outlined circle centered at XX,YY.
+
+    Rendered radius:
+        R * S
+
+
+5: Circle Fill
+--------------
+    IC5XXYYRS****
+
+    XX,YY = center point
+    R     = radius
+    S     = scale factor
+    ****  = unused wildcard values
+
+    Draws a filled circle centered at XX,YY.
+
+    Rendered radius:
+        R * S
+
+
+6: Triangle Outline
+-------------------
+    IC6XXYYVLDROS
+
+    XX,YY = origin vertex
+    V     = downward vector for point 1
+    L     = leftward vector for point 1
+    D     = downward vector for point 2
+    R     = rightward vector for point 2
+    O     = orientation
+    S     = scale factor
+
+    Draws an outlined triangle.
+
+    The origin vertex is at XX,YY.
+
+    Before rotation and scaling, the other two points are defined relative
+    to XX,YY as:
+
+        point 1 = (-L, V)
+        point 2 = ( R, D)
+
+    Orientation:
+        0 = default
+        1 = 90 degrees clockwise
+        2 = 180 degrees
+        3 = 270 degrees clockwise
+
+    The scale factor is applied to the V, L, D, and R vector values.
+
+
+7: Triangle Fill
+----------------
+    IC7XXYYVLDROS
+
+    Same geometry as Shape 6, but the triangle is filled instead of outlined.
+
+
+8: Arrow
+--------
+    IC8XXYYOS****
+
+    XX,YY = arrow tip / vertex
+    O     = orientation
+    S     = scale factor
+    ****  = unused wildcard values
+
+    Draws a solid arrowhead at XX,YY, then draws a rectangular tail behind it.
+
+    Orientation:
+        0 = points upward
+        1 = points right
+        2 = points downward
+        3 = points left
+
+    The scale factor controls the size of the arrow.
+
+
+9: Star
+-------
+    IC9XXYYRS****
+
+    XX,YY = center point
+    R     = radius
+    S     = scale factor
+    ****  = unused wildcard values
+
+    Draws a four-line star centered at XX,YY.
+
+    The star consists of:
+        - vertical line
+        - horizontal line
+        - diagonal NE/SW line
+        - diagonal NW/SE line
+
+    Each line intersects at XX,YY.
+
+    Rendered radius:
+        R * S
+
+    The full length of each line is approximately:
+        2 * R * S
+
+
+A: SemiCircle / Arc
+-------------------
+    ICAXXYYRSOODD
+
+    XX,YY = center point
+    R     = radius
+    S     = scale factor
+    OO    = start angle in degrees
+    DD    = angular distance in degrees
+
+    Draws an arc centered at XX,YY.
+
+    Rendered radius:
+        R * S
+
+    Angle convention:
+        0 degrees points directly right.
+        Angles increase counterclockwise.
+        90 degrees points upward.
+        180 degrees points left.
+        270 degrees points downward.
+
+    OO and DD are two-character base-36 fields representing decimal degrees.
+
+    Examples:
+        DD = 90  -> quarter circle
+        DD = 180 -> half circle
+        DD = 360 -> full circle
+
+
+B: Yagi Antenna
+---------------
+    ICBXXYYOS****
+
+    XX,YY = macro origin point
+    O     = orientation
+    S     = scale factor
+    ****  = unused wildcard values
+
+    Draws a Yagi antenna macro.
+
+    In orientation 0, the main boom is drawn from:
+
+        (XX + 30*S, YY + 0*S)
+        to
+        (XX + 0*S,  YY + 100*S)
+
+    The Yagi also draws 4 perpendicular antenna elements spaced evenly along
+    the boom.
+
+    At scale 1:
+        boom reference size = 30x100 pixels
+        element length      = 22 pixels total
+
+    Orientation:
+        0 = default
+        1 = 90 degrees clockwise
+        2 = 180 degrees
+        3 = 270 degrees clockwise
+
+    The scale factor is applied as an integer multiplier to the default
+    geometry.
+
+
+C: Dish Antenna
+---------------
+    ICCXXYYOS****
+
+    XX,YY = dish center / origin point
+    O     = facing direction
+    S     = scale factor
+    ****  = unused wildcard values
+
+    Draws a dish antenna macro.
+
+    The dish consists of:
+        - a quarter-circle reflector arc
+        - two radial support lines from XX,YY to the arc endpoints
+        - a filled center hub circle at XX,YY
+        - a vertical mast extending down from the midpoint of the arc
+
+    Facing direction:
+        0 = dish faces left
+        1 = dish faces right
+
+    At scale 1:
+        reflector radius = 40 pixels
+        hub radius       = 5 pixels
+        mast length      = 30 pixels
+
+    The scale factor is applied as an integer multiplier to the default
+    geometry.
+
+
+D: Radio Transceiver
+--------------------
+    ICDXXYYS*****
+
+    XX,YY = macro origin point
+    S     = scale factor
+    ***** = unused wildcard values
+
+    Draws a radio transceiver macro.
+
+    The main radio body uses XX,YY as its top-left corner.
+
+    At scale 1:
+        body rectangle = 50 pixels wide by 20 pixels tall
+        knob radius    = 5 pixels
+        screen size    = 20 pixels wide by 10 pixels tall
+
+    The knob is placed near the left side of the radio body and centered
+    vertically.
+
+    The screen is drawn inside the radio body.
+
+    The scale factor is applied as an integer multiplier to the default
+    geometry.
+
+
+E: Radio Waves
+--------------
+    ICEXXYYRSOODD
+
+    XX,YY = center point
+    R     = radius of first wave
+    S     = scale factor
+    OO    = start angle in degrees
+    DD    = angular distance in degrees
+
+    Draws 3 concentric arc segments centered at XX,YY.
+
+    Angle convention:
+        0 degrees points directly right.
+        Angles increase counterclockwise.
+        90 degrees points upward.
+        180 degrees points left.
+        270 degrees points downward.
+
+    The first wave has radius:
+        R * S
+
+    Each additional wave is spaced farther out by:
+        2 * R * S
+
+    Rendered wave radii:
+        R * S
+        R * S + 2 * R * S
+        R * S + 4 * R * S
+
+    Simplified:
+        1 * R * S
+        3 * R * S
+        5 * R * S
+
+
+F: Moon [TODO]
+-------
+    ICFXXYYRS****
+
+    XX,YY = center point
+    R     = radius
+    S     = scale factor
+    ****  = unused wildcard values
+
+    Initial implementation:
+        Draws a simple filled moon circle.
+
+    Rendered radius:
+        R * S
+
+    Crescent moon rendering is a stretch goal and is not required for the
+    initial Moon macro.
+
+
+G: DoubleBox [TODO]
+------------
+    ICGXXYYxxyy**
+
+    XX,YY = first corner
+    xx,yy = opposite corner
+    **    = unused wildcard values
+
+    Proposed implementation:
+        Draws two nested rectangle outlines using XX,YY and xx,yy as the
+        outer rectangle corners.
+
+    This shape is reserved/proposed and may change during prototyping.
+
+
+Implementation Notes:
+=====================
+
+    Invalid packets should not crash the reconstructor.
+
+    If a packet is malformed, the parser should report the issue in the
+    terminal and convert the packet into a VOID/no-op instruction.
+
+    Recommended invalid-packet behavior:
+        bad packet -> print warning -> return VOID -> continue rendering
+
+    Packet parsing should preserve literal spaces in Shape 0 text packets.
+    When reading packets from a file, remove newline characters only.
