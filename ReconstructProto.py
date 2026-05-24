@@ -2,8 +2,16 @@
 Created on May 23, 2026
 
 @author: Aaron Cocanower KE9ETA
+
+TODO:
+Arcs/SemiCircles
+More Macros
+    Moon
+    Radio
+    RadioWaves (3 Semi Circles)
+    DoubleBox
+    
 '''
-from lutris.util.wine import dxvk
 
 '''
 The Canvas autopopulates at resolution 720x480 or K0xDC Base-36
@@ -72,11 +80,13 @@ S: 'Shape' instructions
 7 Triangle Fill
 8 Arrow
 9 Star
-A yagi antenna
-B dish antenna
-C Radio transciever
-D Radio waves
-E Moon
+A Semi Circle
+B yagi antenna
+C dish antenna
+D Radio transciever
+E Radio waves
+F Moon
+G DoubleBox
 
 Data Structures for shapes
 
@@ -152,9 +162,21 @@ Scale factor being a multiplier to scale them up by int multiplication
 
 * are unused wildcard values
 
+A: SemiCircle
+ICAXXYYRSOODD
 
-A: Yagi Antenna
-ICAXXYYOS****
+XX,YY are the center coordinates.
+R is the radius.
+S is the scale factor.
+OO is the start angle in degrees, where 0 points directly right and angles progress counterclockwise.
+DD is the angular distance in degrees, where 90 is a quarter circle and 180 is a half circle.
+
+S is applied as an integer multiplier to the radius.
+OO and DD are stored as two-character base-36 values representing decimal degrees.
+
+
+B: Yagi Antenna
+ICBXXYYOS****
 
 XX,YY is the origin point of the yagi macro.
 
@@ -176,8 +198,8 @@ S is scale, applied as an integer multiplier to the default geometry.
 
 **** are unused wildcard values.
 
-B: Dish Antenna
-ICBXXYYOS****
+C: Dish Antenna
+ICCXXYYOS****
 
 XX,YY is the origin point of the Dish Antenna macro.
 
@@ -195,8 +217,44 @@ S is scale, applied as an integer multiplier to the default geometry.
 
 **** are unused wildcard values.
 
+D: Radio Transceiver
+ICDXXYYS*****
 
-C-E haven't been implemented yet
+XX,YY is the origin point of the radio macro.
+
+At scale 1, the radio is drawn as:
+- an outline rectangle 50 pixels wide by 20 pixels tall
+- an outline circle “knob” of radius 5 pixels
+- a small outline rectangle “screen” 20 pixels wide by 10 pixels tall
+
+The main radio body uses XX,YY as its top-left corner.
+
+The knob is placed roughly 5 pixels from the left side of the radio body and centered vertically.
+
+The screen is drawn inside the radio body.
+
+S is scale, applied as an integer multiplier to the default geometry.
+
+***** are unused wildcard values.
+
+
+E: RadioWaves
+ICEXXYYRSOODD
+
+XX,YY are the center coordinates.
+R is the radius of the first wave.
+S is the scale factor.
+OO is the start angle in degrees, where 0 points directly right and angles progress counterclockwise.
+DD is the angular distance in degrees, where 90 is a quarter circle and 180 is a half circle.
+
+This macro draws 3 concentric arcs.
+At scale 1, the arc radii are R, R+1, and R+2.
+Scale S multiplies those radii, so the rendered radii are:
+R*S, (R+1)*S, and (R+2)*S.
+
+
+
+E-G haven't been implemented yet
 
 
 '''
@@ -260,19 +318,24 @@ def void_packet(packet, reason):
 #intdef manual loading
 def load_commands():
     return [
-        "378A0A8240000", #Arrow Cyan draw 3 currently invalid
-        "0030000H0AF00", #Filled Rectangle Black draw 0
-        "1L0AJAJKE9ETA", #Callsign Purple draw 1
-        #"2432020H05000", #Filled Rectangle Green draw 2
-        "4G9A0A2350000", #Gold star draw 4
-        "5651A1AZ20000", #Yellow Circle Filled draw 5
-        "68A8080220000", #Magenta Yagi drawa 6 orientation 2
-        "74BA0A0010000", #Green Dish antenna scale 1 draw 7
+        "0030000K0DC00", #Filled Rectangle Black draw 0, black background
+        "14300B9K0DC00",#Filled Rectangle green draw 1 0,405 to across screen for ground
+        "210I0D0KE9ETA", #Callsign white draw 2
+        "3G93G9LA10000", #Gold star draw 6 55,33 Dec draw 6 124,345
+        "44CF59L010000", #Green Dish antenna scale 1 draw 3 454, 345 dec
+        "5JC3G9L110000", #hot pink dish antenna scal 1 draw 4  125, 290 dec
+        "6659021Z30000",#Moon standin 324 73 dec draw 5
+        "7G91J0X520000", #Gold star draw 6 55,33 Dec draw 6
+        "8G9HH0Y520000", #Gold star draw 7 629,35 dec draw 7
+        "9G94F3R520000", #Gold star draw 8 159,135 dec draw 8
+        "A1D0MBF100000", #white radio transciever draw 9 22,411 dec
+        "B1DH3BF100000", #white radio transciever draw A 615,411 dec
+        "C1E3Z99A1002N", #White waves draw B 143,333 dec
     ]
 
 #Parsing commands
 def parse(packet):
-    packet = packet.strip().upper()
+    packet = packet.rstrip("\r\n").upper()
 
     if len(packet) != 13:
         return void_packet(
@@ -415,6 +478,20 @@ def parse(packet):
     
     if shape == "A":
         return {
+            "op": "SEMICIRCLE",
+            "index": instruction_index,
+            "color": color,
+            "x": b36_pair(data[0:2]),
+            "y": b36_pair(data[2:4]),
+            "radius": b36(data[4]),
+            "scale": b36(data[5]),
+            "start_angle": b36_pair(data[6:8]),
+            "arc_degrees": b36_pair(data[8:10]),
+            "raw": packet,
+        }
+    
+    if shape == "B":
+        return {
             "op": "YAGI",
             "index": instruction_index,
             "color": color,
@@ -425,7 +502,7 @@ def parse(packet):
             "raw": packet,
         }
 
-    if shape == "B":
+    if shape == "C":
         return {
             "op": "DISH",
             "index": instruction_index,
@@ -436,8 +513,32 @@ def parse(packet):
             "scale": b36(data[5]),
             "raw": packet,
         }
-        
-        
+    
+    if shape == "D":
+        return {
+            "op": "RADIO_TRANSCEIVER",
+            "index": instruction_index,
+            "color": color,
+            "x": b36_pair(data[0:2]),
+            "y": b36_pair(data[2:4]),
+            "scale": b36(data[4]),
+            "raw": packet,
+    }
+          
+    if shape == "E":
+        return {
+            "op": "RADIO_WAVES",
+            "index": instruction_index,
+            "color": color,
+            "x": b36_pair(data[0:2]),
+            "y": b36_pair(data[2:4]),
+            "radius": b36(data[4]),
+            "scale": b36(data[5]),
+            "start_angle": b36_pair(data[6:8]),
+            "arc_degrees": b36_pair(data[8:10]),
+            "raw": packet,
+            }
+          
     return {
         "op": "UNKNOWN",
         "index": instruction_index,
@@ -446,6 +547,7 @@ def parse(packet):
         "data": data,
         "raw": packet,
     }
+
 
 def render(parsed, draw):
     op = parsed["op"]
@@ -497,13 +599,22 @@ def render(parsed, draw):
     elif op == "STAR":
         render_star(parsed, draw)
     
+    elif op == "SEMICIRCLE":
+        render_semicircle(parsed, draw)
+    
     elif op == "YAGI":
         render_yagi(parsed, draw)
     
     
     elif op == "DISH":
         render_dish(parsed, draw)
-
+    
+    elif op == "RADIO_TRANSCEIVER":
+        render_radio_transceiver(parsed, draw)
+    
+    elif op == "RADIO_WAVES":
+        render_radio_waves(parsed, draw)
+        
     elif op == "UNKNOWN":
         print(f"Unknown packet ignored: {parsed['raw']}")
 
@@ -538,6 +649,23 @@ def rotate_point(dx, dy, orientation):
     else:
         return dy, -dx
 
+def draw_arc_line(draw, x, y, radius, start_angle, arc_degrees, color):
+    arc_points = []
+
+    for angle in range(start_angle, start_angle + arc_degrees + 1, 5):
+        theta = math.radians(angle % 360)
+
+        px = round(x + radius * math.cos(theta))
+        py = round(y - radius * math.sin(theta))
+
+        arc_points.append((px, py))
+
+    if len(arc_points) >= 2:
+        draw.line(
+            arc_points,
+            fill=color,
+            width=3,
+        )
 
 #Render macros
 def render_circle(parsed, draw, fill=False):
@@ -724,6 +852,53 @@ def render_star(parsed, draw):
         width=3,
     )
 
+def render_semicircle(parsed, draw):
+    x = parsed["x"]
+    y = parsed["y"]
+    r = parsed["radius"]
+    scale = parsed["scale"]
+    start_angle = parsed["start_angle"]
+    arc_degrees = parsed["arc_degrees"]
+
+    if scale <= 0:
+        print(f"Warning: zero-scale semicircle ignored: {parsed['raw']}")
+        return
+
+    if r <= 0:
+        print(f"Warning: zero-radius semicircle ignored: {parsed['raw']}")
+        return
+
+    radius = r * scale
+
+    # Normalize angles
+    start_angle = start_angle % 360
+    arc_degrees = max(0, min(360, arc_degrees))
+
+    if arc_degrees == 0:
+        print(f"Warning: zero-degree semicircle ignored: {parsed['raw']}")
+        return
+
+    arc_points = []
+
+    # Step through the arc counterclockwise
+    for angle in range(start_angle, start_angle + arc_degrees + 1, 5):
+        theta = math.radians(angle % 360)
+
+        px = round(x + radius * math.cos(theta))
+        py = round(y - radius * math.sin(theta))
+
+        arc_points.append((px, py))
+
+    # Ensure at least 2 points
+    if len(arc_points) < 2:
+        return
+
+    draw.line(
+        arc_points,
+        fill=parsed["color"],
+        width=3,
+    )
+
 def render_yagi(parsed, draw):
     x = parsed["x"]
     y = parsed["y"]
@@ -867,6 +1042,83 @@ def render_dish(parsed, draw):
         fill=parsed["color"],
     )
     
+def render_radio_transceiver(parsed, draw):
+    x = parsed["x"]
+    y = parsed["y"]
+    scale = parsed["scale"]
+
+    if scale <= 0:
+        print(f"Warning: zero-scale radio transceiver ignored: {parsed['raw']}")
+        return
+
+    body_w = 50 * scale
+    body_h = 20 * scale
+
+    knob_radius = 5 * scale
+    knob_cx = x + (10 * scale)
+    knob_cy = y + (10 * scale)
+
+    screen_x1 = x + (25 * scale)
+    screen_y1 = y + (5 * scale)
+    screen_x2 = x + (45 * scale)
+    screen_y2 = y + (15 * scale)
+
+    # Main body
+    draw.rectangle(
+        (x, y, x + body_w, y + body_h),
+        outline=parsed["color"],
+        width=3,
+    )
+
+    # Knob
+    draw.ellipse(
+        (
+            knob_cx - knob_radius,
+            knob_cy - knob_radius,
+            knob_cx + knob_radius,
+            knob_cy + knob_radius,
+        ),
+        outline=parsed["color"],
+        width=3,
+    )
+
+    # Screen
+    draw.rectangle(
+        (screen_x1, screen_y1, screen_x2, screen_y2),
+        outline=parsed["color"],
+        width=3,
+    )
+
+def render_radio_waves(parsed, draw):
+    x = parsed["x"]
+    y = parsed["y"]
+    r = parsed["radius"]
+    scale = parsed["scale"]
+    start_angle = parsed["start_angle"] % 360
+    arc_degrees = max(0, min(360, parsed["arc_degrees"]))
+
+    if scale <= 0:
+        print(f"Warning: zero-scale radio waves ignored: {parsed['raw']}")
+        return
+
+    if r <= 0:
+        print(f"Warning: zero-radius radio waves ignored: {parsed['raw']}")
+        return
+
+    if arc_degrees == 0:
+        print(f"Warning: zero-degree radio waves ignored: {parsed['raw']}")
+        return
+    
+    base_radius = r * scale
+    spacing = 2 * r * scale
+    
+    radius1 = base_radius
+    radius2 = base_radius + spacing
+    radius3 = base_radius + (2 * spacing)
+
+    draw_arc_line(draw, x, y, radius1, start_angle, arc_degrees, parsed["color"])
+    draw_arc_line(draw, x, y, radius2, start_angle, arc_degrees, parsed["color"])
+    draw_arc_line(draw, x, y, radius3, start_angle, arc_degrees, parsed["color"])
     
 #Phyton Run Stuff
 def main():
