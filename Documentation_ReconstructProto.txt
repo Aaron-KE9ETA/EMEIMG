@@ -421,38 +421,65 @@ E: Radio Waves
         5 * R * S
 
 
-F: Moon [TODO]
+F: Moon
 -------
-    ICFXXYYRS****
+    ICFXXYYSK****
 
     XX,YY = center point
-    R     = radius
     S     = scale factor
+    K     = crater color
     ****  = unused wildcard values
 
-    Initial implementation:
-        Draws a simple filled moon circle.
+    Draws a filled moon centered at XX,YY.
 
-    Rendered radius:
-        R * S
+    The moon body uses the packet color C.
+
+    Rendered moon radius:
+        36 * S
+
+    The moon also draws 10 outlined crater circles using color K.
+
+    Crater positions are fixed and deterministic.
+    Crater centers are defined relative to the moon's bounding box,
+    measured from the top-left corner of the moon body.
+
+    At scale 1, the crater center positions are located at:
+        - 1/5 from the left,  1/4 from the top
+        - 3/7 from the left,  5/8 from the top
+        - 1/4 from the left,  7/9 from the top
+        - 4/5 from the left,  2/7 from the top
+        - 7/12 from the left, 1/5 from the top
+        - 2/3 from the left,  2/5 from the top
+        - 5/8 from the left,  3/4 from the top
+        - 7/20 from the left, 3/7 from the top
+        - 3/20 from the left, 5/9 from the top
+        - 3/4 from the left,  3/5 from the top
+
+    At scale 1, crater radii are:
+        3, 5, 4, 2, 6, 3, 4, 2, 5, 3 pixels
+
+    Rendered crater radius:
+        base crater radius * S
 
     Crescent moon rendering is a stretch goal and is not required for the
     initial Moon macro.
 
 
-G: DoubleBox [TODO]
+G: DoubleBox
 ------------
-    ICGXXYYxxyy**
+    ICGXXYYxxyyPP
 
     XX,YY = first corner
     xx,yy = opposite corner
-    **    = unused wildcard values
+    PP    = percentage split position from the top, stored as two-character base-36
 
-    Proposed implementation:
-        Draws two nested rectangle outlines using XX,YY and xx,yy as the
-        outer rectangle corners.
+    Draws an outlined rectangle, then draws a horizontal divider line across
+    the rectangle.
 
-    This shape is reserved/proposed and may change during prototyping.
+    The divider is placed PP percent down from the top edge of the rectangle,
+    splitting the rectangle into a top box and a bottom box.
+
+    PP is clamped to the range 0-100 decimal.
 
 
 Implementation Notes:
