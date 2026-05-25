@@ -83,25 +83,26 @@ Color Codes:
     U = Lightgray
     V = Darkslategray
     W = Dimgray
+    X-Z = Reserved / unused
 
 Shape Codes:
-    0 = 6-character string
-    1 = Line
-    2 = Rectangle outline
-    3 = Rectangle fill
-    4 = Circle outline
-    5 = Circle fill
-    6 = Triangle outline
-    7 = Triangle fill
-    8 = Arrow
-    9 = Star
-    A = SemiCircle / Arc
-    B = Yagi antenna
-    C = Dish antenna
-    D = Radio transceiver
-    E = Radio waves
-    F = Moon
-    G = DoubleBox
+    S: Shape Instructions
+	0 = 6-character string
+	1 = Line
+	2 = Rectangle
+	3 = Ellipse
+	4 = Triangle Outline
+	5 = Triangle Fill
+	6 = Arrow
+	7 = Star
+	8 = SemiCircle / Arc
+	9 = Yagi Antenna
+	A = Dish Antenna
+	B = Radio Transceiver
+	C = Radio Waves
+	D = Moon
+	E = DoubleBox
+	F-Z = Reserved / unused
 
 
 Shape Packet Formats:
@@ -129,61 +130,44 @@ Shape Packet Formats:
     Draws a line from XX,YY to xx,yy.
 
 
-2: Rectangle Outline
---------------------
-    IC2XXYYxxyy**
+
+2: Rectangle
+------------
+    IC2XXYYxxyyF*
 
     XX,YY = first corner
     xx,yy = opposite corner
-    **    = unused wildcard values
+    F     = fill flag
+            0 = outline
+            1 = filled
+    *     = unused wildcard value
 
-    Draws an outlined rectangle using XX,YY and xx,yy as opposite corners.
+    Draws a rectangle using XX,YY and xx,yy as opposite corners.
 
-
-3: Rectangle Fill
------------------
-    IC3XXYYxxyy**
-
-    XX,YY = first corner
-    xx,yy = opposite corner
-    **    = unused wildcard values
-
-    Draws a filled rectangle using XX,YY and xx,yy as opposite corners.
-
-
-4: Circle Outline
------------------
-    IC4XXYYRS****
+3: Ellipse
+----------
+    IC3XXYYRrSF**
 
     XX,YY = center point
-    R     = radius
+    R     = vertical radius
+    r     = horizontal radius
     S     = scale factor
-    ****  = unused wildcard values
+    F     = fill flag
+            0 = outline
+            1 = filled
+    **    = unused wildcard values
 
-    Draws an outlined circle centered at XX,YY.
+    Draws an ellipse centered at XX,YY.
 
-    Rendered radius:
-        R * S
-
-
-5: Circle Fill
---------------
-    IC5XXYYRS****
-
-    XX,YY = center point
-    R     = radius
-    S     = scale factor
-    ****  = unused wildcard values
-
-    Draws a filled circle centered at XX,YY.
-
-    Rendered radius:
-        R * S
+    Rendered radii:
+        vertical radius   = R * S
+        horizontal radius = r * S
 
 
-6: Triangle Outline
+
+4: Triangle Outline
 -------------------
-    IC6XXYYVLDROS
+    IC4XXYYVLDROS
 
     XX,YY = origin vertex
     V     = downward vector for point 1
@@ -212,16 +196,16 @@ Shape Packet Formats:
     The scale factor is applied to the V, L, D, and R vector values.
 
 
-7: Triangle Fill
+5: Triangle Fill
 ----------------
-    IC7XXYYVLDROS
+    IC5XXYYVLDROS
 
     Same geometry as Shape 6, but the triangle is filled instead of outlined.
 
 
-8: Arrow
+6: Arrow
 --------
-    IC8XXYYOS****
+    IC6XXYYOS****
 
     XX,YY = arrow tip / vertex
     O     = orientation
@@ -239,9 +223,9 @@ Shape Packet Formats:
     The scale factor controls the size of the arrow.
 
 
-9: Star
+7: Star
 -------
-    IC9XXYYRS****
+    IC7XXYYRS****
 
     XX,YY = center point
     R     = radius
@@ -265,9 +249,9 @@ Shape Packet Formats:
         2 * R * S
 
 
-A: SemiCircle / Arc
+8: SemiCircle / Arc
 -------------------
-    ICAXXYYRSOODD
+    IC8XXYYRSOODD
 
     XX,YY = center point
     R     = radius
@@ -295,9 +279,9 @@ A: SemiCircle / Arc
         DD = 360 -> full circle
 
 
-B: Yagi Antenna
+9: Yagi Antenna
 ---------------
-    ICBXXYYOS****
+    IC9XXYYOS****
 
     XX,YY = macro origin point
     O     = orientation
@@ -329,9 +313,9 @@ B: Yagi Antenna
     geometry.
 
 
-C: Dish Antenna
+A: Dish Antenna
 ---------------
-    ICCXXYYOS****
+    ICAXXYYOS****
 
     XX,YY = dish center / origin point
     O     = facing direction
@@ -359,9 +343,9 @@ C: Dish Antenna
     geometry.
 
 
-D: Radio Transceiver
+B: Radio Transceiver
 --------------------
-    ICDXXYYS*****
+    ICBXXYYS*****
 
     XX,YY = macro origin point
     S     = scale factor
@@ -385,9 +369,9 @@ D: Radio Transceiver
     geometry.
 
 
-E: Radio Waves
+C: Radio Waves
 --------------
-    ICEXXYYRSOODD
+    ICCXXYYRSOODD
 
     XX,YY = center point
     R     = radius of first wave
@@ -417,13 +401,13 @@ E: Radio Waves
 
     Simplified:
         1 * R * S
-        3 * R * S
+        3 * R G* S
         5 * R * S
 
 
-F: Moon
+D: Moon
 -------
-    ICFXXYYSK****
+    ICDXXYYSK****
 
     XX,YY = center point
     S     = scale factor
@@ -465,9 +449,9 @@ F: Moon
     initial Moon macro.
 
 
-G: DoubleBox
+E: DoubleBox
 ------------
-    ICGXXYYxxyyPP
+    ICEXXYYxxyyPP
 
     XX,YY = first corner
     xx,yy = opposite corner
