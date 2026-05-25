@@ -788,13 +788,13 @@ class EMEIMGEditor(tk.Tk):
         # Outer frame may expand with the window, but the actual editable canvas
         # stays fixed at CANVAS_W x CANVAS_H. This prevents Tk from showing a
         # larger white area than the protocol-editable image area.
-        canvas_frame = tk.Frame(center, bg="#303030")
-        canvas_frame.grid(row=0, column=0, sticky="nsew")
-        canvas_frame.rowconfigure(0, weight=1)
-        canvas_frame.columnconfigure(0, weight=1)
+        self.canvas_frame = tk.Frame(center, bg="#303030")
+        self.canvas_frame.grid(row=0, column=0, sticky="nsew")
+        self.canvas_frame.rowconfigure(0, weight=1)
+        self.canvas_frame.columnconfigure(0, weight=1)
 
         self.canvas = tk.Canvas(
-            canvas_frame,
+            self.canvas_frame,
             width=CANVAS_W,
             height=CANVAS_H,
             bg="white",
@@ -805,6 +805,11 @@ class EMEIMGEditor(tk.Tk):
         self.canvas.grid(row=0, column=0)
         self.canvas.bind("<Button-1>", self._on_canvas_click)
         self.canvas.bind("<Motion>", self._on_canvas_motion)
+        # Let clicks in the dark margin around the fixed canvas snap to the
+        # nearest valid canvas edge. This makes selecting exact edge points
+        # much less annoying.
+        self.canvas_frame.bind("<Button-1>", self._on_canvas_click)
+        self.canvas_frame.bind("<Motion>", self._on_canvas_motion)
 
         bottom = ttk.Frame(center)
         bottom.grid(row=1, column=0, sticky="ew", pady=(6, 0))
@@ -988,9 +993,25 @@ class EMEIMGEditor(tk.Tk):
         self._set_status("Pending first click cleared.")
         self._render_all()
 
+    def _event_to_canvas_xy(self, event) -> Tuple[int, int]:
+        """Convert a Tk event into canvas coordinates, clamped to the canvas.
+
+        Events from self.canvas already use canvas-local coordinates. Events
+        from self.canvas_frame use frame-local coordinates, so subtract the
+        fixed canvas position inside the frame before clamping.
+        """
+        if event.widget is self.canvas:
+            raw_x, raw_y = event.x, event.y
+        else:
+            raw_x = event.x - self.canvas.winfo_x()
+            raw_y = event.y - self.canvas.winfo_y()
+
+        x = clamp(raw_x, 0, CANVAS_W - 1)
+        y = clamp(raw_y, 0, CANVAS_H - 1)
+        return x, y
+
     def _on_canvas_motion(self, event):
-        x = clamp(event.x, 0, CANVAS_W - 1)
-        y = clamp(event.y, 0, CANVAS_H - 1)
+        x, y = self._event_to_canvas_xy(event)
         xy = encode_xy(x, y)
         self._set_status(
             f"Canvas px=({x},{y}) XXYY={xy} | next I={len(self.commands)} C={self.selected_color} S={self.selected_shape.code}"
@@ -1001,8 +1022,7 @@ class EMEIMGEditor(tk.Tk):
             messagebox.showerror("Command limit reached", "EMEIMG command order index supports 36 commands: 0-Z.")
             return
 
-        x = clamp(event.x, 0, CANVAS_W - 1)
-        y = clamp(event.y, 0, CANVAS_H - 1)
+        x, y = self._event_to_canvas_xy(event)
 
         if self.selected_shape.needs_second_click:
             if self.pending_first_click is None:
@@ -1130,7 +1150,7 @@ class EMEIMGEditor(tk.Tk):
             base_packet, is_priority = split_priority_tag(packet)
             display_packet = pad_packet(base_packet).replace(" ", "·")
             if is_priority:
-                display_packet += f" {PRIORITY_TAG}"
+                display_packet += PRIORITY_TAG
             self.layer_list.insert(tk.END, f"{i:02d}: {display_packet}")
 
     def _on_layer_select(self, _event=None):
