@@ -12,7 +12,10 @@ BASE36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 # or be driven by WSJT-X / MAP65 timing/API state.
 TX_INTERVAL_MS = 1000
 
+# Robustness / redundancy settings
 PRIORITY_REPEAT_COUNT = 3
+NON_PRIORITY_REPEAT_COUNT = 2
+
 STATION_ID_EVERY_N_TRANSMISSIONS = 10
 PRIORITY_TAG = "[PRIORITY]"
 
@@ -264,7 +267,7 @@ class EMEIMGFeeder(tk.Tk):
 
                 priority = False
 
-                # Accept normal Constructor format:
+                # Normal Constructor format:
                 # PACKET[PRIORITY]
                 if line.upper().endswith(PRIORITY_TAG):
                     priority = True
@@ -274,6 +277,7 @@ class EMEIMGFeeder(tk.Tk):
                 # Example:
                 # "IC2000014140*",
                 stripped_for_wrapper_check = line.strip()
+
                 if (
                     stripped_for_wrapper_check.endswith(",")
                     and stripped_for_wrapper_check.startswith('"')
@@ -369,7 +373,11 @@ class EMEIMGFeeder(tk.Tk):
         sorted_packets = priority_packets + normal_packets
 
         for packet in sorted_packets:
-            repeat_count = PRIORITY_REPEAT_COUNT if packet.priority else 1
+            repeat_count = (
+                PRIORITY_REPEAT_COUNT
+                if packet.priority
+                else NON_PRIORITY_REPEAT_COUNT
+            )
 
             for _ in range(repeat_count):
                 source = "priority-packet" if packet.priority else "packet"
@@ -425,6 +433,8 @@ class EMEIMGFeeder(tk.Tk):
         self.log("=== TRANSMISSION STARTED ===")
         self.log(f"Queue length: {len(self.transmission_queue)} console transmissions")
         self.log(f"Packet no decode setting: {round(self.no_decode_var.get())}%")
+        self.log(f"Priority repeat count: {PRIORITY_REPEAT_COUNT}")
+        self.log(f"Non-priority repeat count: {NON_PRIORITY_REPEAT_COUNT}")
         self.log("")
 
         self._transmit_next()
