@@ -1,4 +1,4 @@
-EMEIMG Reconstruct Prototype
+EMEIMG Prototype
 Created on May 23, 2026
 
 Author:
@@ -798,6 +798,417 @@ Rendering Behavior:
     The only difference is that the second command is marked for additional
     transmission redundancy by the feeder program.
 
+
+Feeder
+
+=====================
+
+    The Feeder GUI is responsible for taking a completed Constructor output
+    file and scheduling it for transmission.
+
+    The Feeder does not generate image geometry.
+
+    The Feeder reads saved EMEIMG packet lines, identifies metadata such as
+    [PRIORITY], determines transmission order, applies redundancy rules, and
+    outputs packets to the transmit path.
+
+    In the prototype version, the transmit path is represented by console
+    output.
+
+    In a future version, this console output may be replaced with or connected
+    to a WSJT-X, MAP65, or other JT65B-capable transmit-control interface.
+
+GUI Fields:
+-----------
+    The Feeder GUI contains the following user-editable fields:
+
+        Callsign:
+            The transmitting station callsign.
+
+            Example:
+                KE9ETA
+
+        EMEIMG Version Number:
+            The protocol/image format version number.
+
+            Example:
+                1
+
+        Image Number:
+            A two-character Base-36 image identifier.
+
+            Valid range:
+                00 through ZZ
+
+            Examples:
+                00
+                01
+                0A
+                10
+                ZZ
+
+    The version number and image number are combined into the automatic
+    version header packet:
+
+        EMEIMGV[version][image number]
+
+    Example:
+        EMEIMGV100
+
+GUI Buttons:
+------------
+    Open File:
+        Opens a text-based .emeimg file created by the Constructor program.
+
+        The file should contain one EMEIMG packet line per instruction.
+
+    Transmit:
+        Begins transmitting the loaded file according to Feeder scheduling
+        rules.
+
+        In the prototype, each transmission is printed to the console.
+
+    Pause Transmit:
+        Temporarily pauses the active transmission queue.
+
+        Pausing does not erase the queue and does not reset the current
+        transmission position.
+
+        Resuming continues with the next unsent transmission.
+
+    Stop Transmit:
+        Stops the active transmission and resets the current transmit position.
+
+        A stopped transmission must be restarted from the beginning.
+
+Input File Handling:
+--------------------
+    The Feeder reads Constructor output as one command per line.
+
+    Each command line may be either:
+
+        <13-character EMEIMG packet>
+
+    or:
+
+        <13-character EMEIMG packet>[PRIORITY]
+
+    The [PRIORITY] tag is metadata only.
+
+    The [PRIORITY] tag is not transmitted as part of the EMEIMG packet.
+
+    The Feeder should remove newline characters from each file line, but should
+    not strip trailing packet spaces before parsing the 13-character packet.
+
+    This is important because Shape 0 text packets may use spaces as literal
+    text payload characters.
+
+    Recommended Feeder loading process:
+
+        1. Read one line from the .emeimg file.
+        2. Remove newline characters only.
+        3. Check whether the line ends with [PRIORITY].
+        4. If [PRIORITY] is present, store priority=True.
+        5. Remove the [PRIORITY] metadata tag.
+        6. Preserve the remaining 13-character packet exactly.
+        7. Add the packet to the transmission queue.
+
+Priority Metadata:
+------------------
+    The [PRIORITY] tag tells the Feeder that a packet should receive additional
+    transmit redundancy.
+
+    Priority does not change the packet contents.
+
+    Priority does not change the packet's render order.
+
+    Priority does not change the packet's geometry, color, or shape behavior.
+
+    Priority only changes how the Feeder schedules transmission.
+
+    A priority packet is transmitted three times.
+
+    Example file line:
+
+        IC2000014140*[PRIORITY]
+
+    Actual transmitted packet:
+
+        IC2000014140*
+
+Priority Repeat Count:
+----------------------
+    Priority packets are sent:
+
+        3 times
+
+    Non-priority packets are sent:
+
+        1 time
+
+    This allows important image elements to receive extra redundancy without
+    spending unnecessary transmit cycles on cosmetic details.
+
+Automatic Feeder Packets:
+-------------------------
+    The Feeder automatically generates several transmission packets that are
+    not stored as normal Constructor drawing instructions.
+
+    These packets are used for station identification, image session
+    identification, and transmission closure.
+
+Opening Station ID Header:
+--------------------------
+    Before sending image data, the Feeder sends:
+
+        [CALLSIGN] EMEIMG
+
+    Example:
+
+        KE9ETA EMEIMG
+
+    This identifies the transmitting station and indicates that an EMEIMG
+    transmission is beginning.
+
+    The opening station ID header is treated as a priority packet.
+
+    It is transmitted three times.
+
+Version Header:
+---------------
+    After the opening station ID header, the Feeder sends the image version
+    header:
+
+        EMEIMGV[version][image number]
+
+    Example:
+
+        EMEIMGV100
+
+    This packet identifies the EMEIMG version and the image number being
+    transmitted.
+
+    The version header is treated as a priority packet.
+
+    It is transmitted three times.
+
+Image Packet Scheduling:
+------------------------
+    After the automatic opening headers are sent, the Feeder schedules the
+    packets loaded from the .emeimg file.
+
+    Priority packets are sent before non-priority packets.
+
+    Order is preserved within each priority group.
+
+    Recommended scheduling process:
+
+        1. Load all packet lines from the .emeimg file.
+        2. Separate priority packets from non-priority packets.
+        3. Preserve the original file order inside each group.
+        4. Queue all priority packets first.
+        5. Queue all non-priority packets after priority packets.
+        6. Repeat each priority packet three times.
+        7. Send each non-priority packet once.
+
+    Example file order:
+
+        Packet A
+        Packet B[PRIORITY]
+        Packet C
+        Packet D[PRIORITY]
+
+    Feeder scheduling order:
+
+        Packet B
+        Packet B
+        Packet B
+        Packet D
+        Packet D
+        Packet D
+        Packet A
+        Packet C
+
+    This transmission ordering does not affect final render order because the
+    reconstructor renders packets by their instruction index I, not by receive
+    order.
+
+Station ID During Transmission:
+-------------------------------
+    The Feeder periodically inserts the station ID during the transmission.
+
+    Every 10th console transmission slot is reserved for:
+
+        [CALLSIGN] EMEIMG
+
+    Example:
+
+        KE9ETA EMEIMG
+
+    This provides repeated station identification during a long EMEIMG
+    transmission.
+
+    The inserted station ID is not an image drawing packet.
+
+    It is transmit-session metadata and should not be parsed as an EMEIMG
+    drawing instruction by the image reconstructor.
+
+    Example transmission spacing:
+
+        0001: KE9ETA EMEIMG
+        0002: KE9ETA EMEIMG
+        0003: KE9ETA EMEIMG
+        0004: EMEIMGV100
+        0005: EMEIMGV100
+        0006: EMEIMGV100
+        0007: priority image packet
+        0008: priority image packet
+        0009: priority image packet
+        0010: KE9ETA EMEIMG
+        0011: next image packet
+
+Final Closing Packet:
+---------------------
+    After all image packets have been transmitted, the Feeder sends a closing
+    packet:
+
+        [CALLSIGN] 73
+
+    Example:
+
+        KE9ETA 73
+
+    The closing packet indicates that the EMEIMG transmission is complete.
+
+    The closing packet is treated as a priority packet.
+
+    It is transmitted three times.
+
+Overall Transmission Order:
+---------------------------
+    The complete Feeder transmission sequence is:
+
+        1. Send [CALLSIGN] EMEIMG three times.
+        2. Send EMEIMGV[version][image number] three times.
+        3. Sort loaded file packets with priority packets first.
+        4. Send priority image packets three times each.
+        5. Send non-priority image packets once each.
+        6. Insert [CALLSIGN] EMEIMG into every 10th transmission slot.
+        7. Send [CALLSIGN] 73 three times after all image packets are complete.
+
+Example:
+--------
+    Callsign:
+        KE9ETA
+
+    Version:
+        1
+
+    Image Number:
+        00
+
+    Automatic opening priority transmissions:
+
+        KE9ETA EMEIMG
+        KE9ETA EMEIMG
+        KE9ETA EMEIMG
+        EMEIMGV100
+        EMEIMGV100
+        EMEIMGV100
+
+    Automatic closing priority transmissions:
+
+        KE9ETA 73
+        KE9ETA 73
+        KE9ETA 73
+
+Console Output:
+---------------
+    In the prototype Feeder, transmissions are printed to the console.
+
+    Console output is a stand-in for a future transmit interface.
+
+    The console should show:
+
+        - Transmission number
+        - Transmitted text
+        - Transmission type/source
+
+    Example:
+
+        0001: KE9ETA EMEIMG    [priority-header]
+        0002: KE9ETA EMEIMG    [priority-header]
+        0003: KE9ETA EMEIMG    [priority-header]
+        0004: EMEIMGV100       [priority-version-header]
+        0005: EMEIMGV100       [priority-version-header]
+        0006: EMEIMGV100       [priority-version-header]
+        0007: IC2000014140*    [priority-packet]
+
+Transmit Timing:
+----------------
+    The prototype Feeder may use a shortened delay between console outputs for
+    testing.
+
+    In real JT65B operation, the timing would need to respect the JT65B
+    transmission cycle and whatever timing/API constraints are required by
+    WSJT-X, MAP65, or the chosen transmit interface.
+
+Pause / Resume Behavior:
+------------------------
+    When paused, the Feeder should stop advancing through the transmission
+    queue.
+
+    The current queue should remain intact.
+
+    When resumed, the Feeder should continue from the next unsent item.
+
+    Pause should not rebuild or reorder the queue.
+
+Stop Behavior:
+--------------
+    When stopped, the Feeder should cancel the active transmission queue and
+    reset the transmit position.
+
+    Restarting transmission after a stop should rebuild the queue from the
+    currently loaded file and current GUI field values.
+
+Error Handling:
+---------------
+    The Feeder should not crash if a file contains malformed lines.
+
+    Recommended behavior:
+
+        bad line -> report warning -> skip line or mark invalid -> continue
+
+    Lines that are blank should be ignored.
+
+    Lines beginning with comment markers may be ignored.
+
+    Suggested comment markers:
+
+        #
+        //
+
+    If a packet is not exactly 13 characters after removing [PRIORITY], the
+    Feeder should report it as malformed.
+
+    If a malformed packet is skipped, the console should identify the source
+    line number when possible.
+
+Important Separation of Roles:
+------------------------------
+    Constructor:
+        Creates packet lines and optionally appends [PRIORITY].
+
+    Feeder:
+        Reads packet lines, schedules transmissions, repeats priority items,
+        inserts station ID, and sends output to the transmit path.
+
+    Reconstructor:
+        Ignores [PRIORITY] and reconstructs the image from valid 13-character
+        EMEIMG packets.
+
+    The Feeder is part of the transmission system, not the image renderer.
 
 
 
