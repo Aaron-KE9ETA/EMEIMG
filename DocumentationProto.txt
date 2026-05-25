@@ -1,58 +1,165 @@
-EMEIMG Prototype
-Created on May 23, 2026
+EMEIMG PROTOTYPE — CONSOLIDATED DOCUMENTATION
+Created: May 23, 2026
+Updated / Consolidated: May 25, 2026
 
 Author:
     Aaron Cocanower KE9ETA
 
-GENERAL SPECS
-=====================
+Project Summary:
+    EMEIMG is an experimental vector-image reconstruction protocol for sending
+    simple image drawing instructions through JT65B-sized 13-character text
+    packets.
 
-Overview:
-    EMEIMG is an experimental vector-image reconstruction protocol intended
-    for transmitting simple image drawing instructions through JT65B-sized
-    13-character text packets.
+    The overall system is currently divided into three prototype modules:
+
+        1. Constructor
+            A packet-first GUI editor used to build an image layer by layer and
+            export a .emeimg instruction file.
+
+        2. Feeder
+            A GUI transmission scheduler that loads .emeimg files, inserts
+            station/session headers, applies packet redundancy, simulates packet
+            no-decode events, and exports successfully decoded packets to a
+            .emeimgout file.
+
+        3. Reconstructor
+            A deterministic receiver-side renderer that loads received packet
+            data, parses valid 13-character EMEIMG packets, sorts them by render
+            index, removes exact duplicates, and exports the reconstructed image
+            as a PNG.
+
+    The design goal is not full raster-image transfer. The design goal is to
+    send a compact vector-like instruction set that can reconstruct a simple,
+    recognizable 720x480 image using a small number of robust text packets.
+
+################################################################################################################################################################
+
+GENERAL PROTOCOL SPECIFICATION
+==============================
 
 Canvas:
-    The receiver reconstructs the image on a fixed 720x480 pixel canvas.
+    The fixed reconstructed image canvas is:
 
-    Decimal:
-        Width  = 720
-        Height = 480
+        Width  = 720 pixels
+        Height = 480 pixels
 
-    Base-36:
+    Base-36 equivalents:
+
         Width  = K0
         Height = DC
 
     Valid visible coordinate range:
+
         X: 00 through JZ  -> 0 through 719 decimal
         Y: 00 through DB  -> 0 through 479 decimal
+
+    Geometry may extend beyond the visible canvas. Off-canvas drawing should not
+    crash the software; it may be clipped by the image library.
+
+Packet Length:
+    Every EMEIMG drawing packet is exactly 13 characters.
 
 General Packet Structure:
     ICSXXXXXXXXXX
 
-    I = instruction index / render order
-    C = color code
-    S = shape code
-    X = shape-specific payload data
+    Field meaning:
 
-    Each packet is exactly 13 characters.
+        I = instruction index / render order
+        C = color code
+        S = shape code
+        X = shape-specific payload data
 
-    The instruction index I ranges from 0 to Z in base-36.
+    Character positions:
+
+        packet[0]    -> instruction index
+        packet[1]    -> color code
+        packet[2]    -> shape code
+        packet[3:13] -> shape-specific payload
+
+Instruction Index:
+    I is a single Base-36 character.
+
+    Valid instruction index range:
+
+        0 through Z
+
+    This gives 36 ordered drawing instructions per image.
+
     Packets are rendered in ascending instruction index order, regardless of
-    receive/load order.
+    file order, receive order, or Feeder transmission order.
 
     Exact duplicate packets may be removed before rendering.
 
-    Most numeric fields are encoded in base-36.
+Base-36 Encoding:
+    Most numeric fields are encoded in Base-36.
+
+    Base-36 digits:
+
+        0 1 2 3 4 5 6 7 8 9 A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
+
+    Single-character fields can represent:
+
+        0 through 35 decimal
+
+    Two-character fields can represent:
+
+        00 through ZZ
+        0 through 1295 decimal
+
     Two-character coordinate fields such as XX or YY are decoded as one
-    two-character base-36 number.
+    two-character Base-36 number, not as two separate digits.
 
-Text Packet Note:
+Text Packet Rule:
     Shape 0 uses the final six payload characters as literal text.
-    These characters may include spaces. Do not strip trailing spaces from
-    packet strings before parsing; only strip newline characters from file input.
 
-Color Codes:
+    Those six characters may include spaces.
+
+    File readers must not use line.strip() before packet parsing, because that
+    can destroy meaningful trailing spaces inside Shape 0 packets.
+
+    Recommended line cleanup:
+
+        line = line.rstrip("\r\n")
+
+    Avoid:
+
+        line = line.strip()
+
+Priority Metadata Rule:
+    [PRIORITY] is not part of the 13-character EMEIMG packet.
+
+    It is metadata used by the Constructor and Feeder.
+
+    A priority-tagged command line has this structure:
+
+        <13-character EMEIMG packet>[PRIORITY]
+
+    The Reconstructor and preview renderers must ignore [PRIORITY] when drawing.
+
+    The Feeder must not transmit [PRIORITY] as packet data.
+
+File Types:
+    .emeimg:
+        Constructor output file.
+        Contains one 13-character packet per line, optionally followed by
+        [PRIORITY].
+
+    .emeimgout:
+        Feeder decoded-output test file.
+        Contains successfully decoded image packets in this wrapper format:
+
+            "PACKET",
+
+        The wrapper is not part of the packet.
+
+    .png:
+        Reconstructor output image.
+
+################################################################################################################################################################
+
+COLOR CODES
+===========
+
     0 = Black
     1 = White
     2 = Gray
@@ -88,107 +195,157 @@ Color Codes:
     W = Dimgray
     X-Z = Reserved / unused
 
-Shape Codes:
-    S: Shape Instructions
-	0 = 6-character string
-	1 = Line
-	2 = Rectangle
-	3 = Ellipse
-	4 = Triangle Outline
-	5 = Triangle Fill
-	6 = Arrow
-	7 = Star
-	8 = SemiCircle / Arc
-	9 = Yagi Antenna
-	A = Dish Antenna
-	B = Radio Transceiver
-	C = Radio Waves
-	D = Moon
-	E = DoubleBox
-	F-Z = Reserved / unused
+Notes:
+    The color code is the second character in the packet.
 
+    Example:
 
-Shape Packet Formats:
-=====================
+        I C S XXXXXXXXXX
+          ^
+          color code
+
+    Reserved color values should not crash the renderer. Recommended behavior is
+    to warn and either ignore the packet or fall back to a safe default color.
+
+################################################################################################################################################################
+
+SHAPE CODE QUICK REFERENCE
+==========================
+
+    0 = 6-character string
+    1 = Line
+    2 = Rectangle
+    3 = Ellipse
+    4 = Triangle Outline
+    5 = Triangle Fill
+    6 = Arrow
+    7 = Star
+    8 = SemiCircle / Arc
+    9 = Yagi Antenna
+    A = Dish Antenna
+    B = Radio Transceiver
+    C = Radio Waves
+    D = Moon
+    E = DoubleBox
+    F-Z = Reserved / unused
+
+Notes:
+    Shape code is the third character in the packet.
+
+    Example:
+
+        I C S XXXXXXXXXX
+            ^
+            shape code
+
+    Reserved shape values must not crash the Reconstructor. Recommended behavior
+    is to warn and ignore the packet.
+
+################################################################################################################################################################
+
+SHAPE PACKET FORMATS
+====================
 
 0: 6-Character String
 ---------------------
-    IC0XXYY******
+    Format:
+        IC0XXYY******
 
-    XX,YY = text origin point
-    ****** = six literal text characters
+    Fields:
+        XX,YY  = text origin point
+        ****** = six literal text characters
 
-    Draws a six-character text string at coordinate XX,YY.
-    The text field may contain spaces.
+    Behavior:
+        Draws a six-character text string at coordinate XX,YY.
+
+    Important:
+        The text field may contain spaces. Do not strip trailing packet spaces
+        before parsing.
 
 
 1: Line
 -------
-    IC1XXYYxxyy**
+    Format:
+        IC1XXYYxxyy**
 
-    XX,YY = first endpoint
-    xx,yy = second endpoint
-    **    = unused wildcard values
+    Fields:
+        XX,YY = first endpoint
+        xx,yy = second endpoint
+        **    = unused wildcard values
 
-    Draws a line from XX,YY to xx,yy.
-
+    Behavior:
+        Draws a line from XX,YY to xx,yy.
 
 
 2: Rectangle
 ------------
-    IC2XXYYxxyyF*
+    Format:
+        IC2XXYYxxyyF*
 
-    XX,YY = first corner
-    xx,yy = opposite corner
-    F     = fill flag
-            0 = outline
-            1 = filled
-    *     = unused wildcard value
+    Fields:
+        XX,YY = first corner
+        xx,yy = opposite corner
+        F     = fill flag
+                0 = outline
+                1 = filled
+        *     = unused wildcard value
 
-    Draws a rectangle using XX,YY and xx,yy as opposite corners.
+    Behavior:
+        Draws a rectangle using XX,YY and xx,yy as opposite corners.
+
+    Notes:
+        Shape 2 replaces the earlier separate rectangle-outline and
+        rectangle-fill commands by using the F fill flag.
+
 
 3: Ellipse
 ----------
-    IC3XXYYRrSF**
+    Format:
+        IC3XXYYRrSF**
 
-    XX,YY = center point
-    R     = vertical radius
-    r     = horizontal radius
-    S     = scale factor
-    F     = fill flag
-            0 = outline
-            1 = filled
-    **    = unused wildcard values
+    Fields:
+        XX,YY = center point
+        R     = vertical radius
+        r     = horizontal radius
+        S     = scale factor
+        F     = fill flag
+                0 = outline
+                1 = filled
+        **    = unused wildcard values
 
-    Draws an ellipse centered at XX,YY.
+    Behavior:
+        Draws an ellipse centered at XX,YY.
 
     Rendered radii:
         vertical radius   = R * S
         horizontal radius = r * S
 
+    Notes:
+        Shape 3 replaces the earlier separate circle-outline and circle-fill
+        commands by supporting both outline and filled ellipses.
 
 
 4: Triangle Outline
 -------------------
-    IC4XXYYVLDROS
+    Format:
+        IC4XXYYVLDROS
 
-    XX,YY = origin vertex
-    V     = downward vector for point 1
-    L     = leftward vector for point 1
-    D     = downward vector for point 2
-    R     = rightward vector for point 2
-    O     = orientation
-    S     = scale factor
+    Fields:
+        XX,YY = origin vertex
+        V     = downward vector for point 1
+        L     = leftward vector for point 1
+        D     = downward vector for point 2
+        R     = rightward vector for point 2
+        O     = orientation
+        S     = scale factor
 
-    Draws an outlined triangle.
+    Behavior:
+        Draws an outlined triangle.
 
-    The origin vertex is at XX,YY.
-
-    Before rotation and scaling, the other two points are defined relative
-    to XX,YY as:
-
-        point 1 = (-L, V)
-        point 2 = ( R, D)
+    Geometry before rotation and scaling:
+        origin  = (XX, YY)
+        point 1 = (XX - L, YY + V)
+        point 2 = (XX + R, YY + D)
 
     Orientation:
         0 = default
@@ -196,26 +353,37 @@ Shape Packet Formats:
         2 = 180 degrees
         3 = 270 degrees clockwise
 
-    The scale factor is applied to the V, L, D, and R vector values.
+    Scaling:
+        S is applied to V, L, D, and R.
 
 
 5: Triangle Fill
 ----------------
-    IC5XXYYVLDROS
+    Format:
+        IC5XXYYVLDROS
 
-    Same geometry as Shape 6, but the triangle is filled instead of outlined.
+    Fields:
+        Same fields as Shape 4.
+
+    Behavior:
+        Uses the same geometry as Shape 4, but draws a filled triangle instead
+        of an outlined triangle.
 
 
 6: Arrow
 --------
-    IC6XXYYOS****
+    Format:
+        IC6XXYYOS****
 
-    XX,YY = arrow tip / vertex
-    O     = orientation
-    S     = scale factor
-    ****  = unused wildcard values
+    Fields:
+        XX,YY = arrow tip / vertex
+        O     = orientation
+        S     = scale factor
+        ****  = unused wildcard values
 
-    Draws a solid arrowhead at XX,YY, then draws a rectangular tail behind it.
+    Behavior:
+        Draws a solid arrowhead at XX,YY, then draws a rectangular tail behind
+        it.
 
     Orientation:
         0 = points upward
@@ -223,19 +391,23 @@ Shape Packet Formats:
         2 = points downward
         3 = points left
 
-    The scale factor controls the size of the arrow.
+    Scaling:
+        The scale factor controls the size of the arrow.
 
 
 7: Star
 -------
-    IC7XXYYRS****
+    Format:
+        IC7XXYYRS****
 
-    XX,YY = center point
-    R     = radius
-    S     = scale factor
-    ****  = unused wildcard values
+    Fields:
+        XX,YY = center point
+        R     = radius
+        S     = scale factor
+        ****  = unused wildcard values
 
-    Draws a four-line star centered at XX,YY.
+    Behavior:
+        Draws a four-line star centered at XX,YY.
 
     The star consists of:
         - vertical line
@@ -243,26 +415,27 @@ Shape Packet Formats:
         - diagonal NE/SW line
         - diagonal NW/SE line
 
-    Each line intersects at XX,YY.
-
     Rendered radius:
         R * S
 
-    The full length of each line is approximately:
+    Approximate full length of each line:
         2 * R * S
 
 
 8: SemiCircle / Arc
 -------------------
-    IC8XXYYRSOODD
+    Format:
+        IC8XXYYRSOODD
 
-    XX,YY = center point
-    R     = radius
-    S     = scale factor
-    OO    = start angle in degrees
-    DD    = angular distance in degrees
+    Fields:
+        XX,YY = center point
+        R     = radius
+        S     = scale factor
+        OO    = start angle in degrees, stored as two-character Base-36
+        DD    = angular distance in degrees, stored as two-character Base-36
 
-    Draws an arc centered at XX,YY.
+    Behavior:
+        Draws an arc centered at XX,YY.
 
     Rendered radius:
         R * S
@@ -274,35 +447,42 @@ Shape Packet Formats:
         180 degrees points left.
         270 degrees points downward.
 
-    OO and DD are two-character base-36 fields representing decimal degrees.
+    Common angle encodings:
+        90 degrees  = 2I in Base-36
+        180 degrees = 50 in Base-36
+        270 degrees = 7I in Base-36
+        360 degrees = A0 in Base-36
 
-    Examples:
-        DD = 90  -> quarter circle
-        DD = 180 -> half circle
-        DD = 360 -> full circle
+    Notes:
+        OO and DD are Base-36 fields. The text "90" in the packet means
+        324 decimal, not 90 decimal.
 
 
 9: Yagi Antenna
 ---------------
-    IC9XXYYOS****
+    Format:
+        IC9XXYYOS****
 
-    XX,YY = macro origin point
-    O     = orientation
-    S     = scale factor
-    ****  = unused wildcard values
+    Fields:
+        XX,YY = macro origin point
+        O     = orientation
+        S     = scale factor
+        ****  = unused wildcard values
 
-    Draws a Yagi antenna macro.
+    Behavior:
+        Draws a Yagi antenna macro.
 
-    In orientation 0, the main boom is drawn from:
+    Orientation 0 reference geometry:
+        Main boom is drawn from:
 
-        (XX + 30*S, YY + 0*S)
-        to
-        (XX + 0*S,  YY + 100*S)
+            (XX + 30*S, YY + 0*S)
+            to
+            (XX + 0*S,  YY + 100*S)
 
-    The Yagi also draws 4 perpendicular antenna elements spaced evenly along
-    the boom.
+        The macro also draws 4 perpendicular antenna elements spaced evenly
+        along the boom.
 
-    At scale 1:
+    Scale 1 reference:
         boom reference size = 30x100 pixels
         element length      = 22 pixels total
 
@@ -312,20 +492,23 @@ Shape Packet Formats:
         2 = 180 degrees
         3 = 270 degrees clockwise
 
-    The scale factor is applied as an integer multiplier to the default
-    geometry.
+    Scaling:
+        S is applied as an integer multiplier to the default geometry.
 
 
 A: Dish Antenna
 ---------------
-    ICAXXYYOS****
+    Format:
+        ICAXXYYOS****
 
-    XX,YY = dish center / origin point
-    O     = facing direction
-    S     = scale factor
-    ****  = unused wildcard values
+    Fields:
+        XX,YY = dish center / origin point
+        O     = facing direction
+        S     = scale factor
+        ****  = unused wildcard values
 
-    Draws a dish antenna macro.
+    Behavior:
+        Draws a dish antenna macro.
 
     The dish consists of:
         - a quarter-circle reflector arc
@@ -337,56 +520,54 @@ A: Dish Antenna
         0 = dish faces left
         1 = dish faces right
 
-    At scale 1:
+    Scale 1 reference:
         reflector radius = 40 pixels
         hub radius       = 5 pixels
         mast length      = 30 pixels
 
-    The scale factor is applied as an integer multiplier to the default
-    geometry.
+    Scaling:
+        S is applied as an integer multiplier to the default geometry.
 
 
 B: Radio Transceiver
 --------------------
-    ICBXXYYS*****
+    Format:
+        ICBXXYYS*****
 
-    XX,YY = macro origin point
-    S     = scale factor
-    ***** = unused wildcard values
+    Fields:
+        XX,YY = macro origin point
+        S     = scale factor
+        ***** = unused wildcard values
 
-    Draws a radio transceiver macro.
+    Behavior:
+        Draws a radio transceiver macro.
 
     The main radio body uses XX,YY as its top-left corner.
 
-    At scale 1:
+    Scale 1 reference:
         body rectangle = 50 pixels wide by 20 pixels tall
         knob radius    = 5 pixels
         screen size    = 20 pixels wide by 10 pixels tall
 
-    The knob is placed near the left side of the radio body and centered
-    vertically.
-
-    The screen is drawn inside the radio body.
-
-    The scale factor is applied as an integer multiplier to the default
-    geometry.
+    Notes:
+        The knob is placed near the left side of the radio body and centered
+        vertically. The screen is drawn inside the radio body.
 
 
 C: Radio Waves
 --------------
-    ICCXXYYRSOODD
+    Format:
+        ICCXXYYRSOODD
 
-    XX,YY = center point
-    R     = radius of first
+    Fields:
+        XX,YY = center point
+        R     = radius of first wave
+        S     = scale factor
+        OO    = start angle in degrees, stored as two-character Base-36
+        DD    = angular distance in degrees, stored as two-character Base-36
 
-
-Constructor
-===================== wave
-    S     = scale factor
-    OO    = start angle in degrees
-    DD    = angular distance in degrees
-
-    Draws 3 concentric arc segments centered at XX,YY.
+    Behavior:
+        Draws 3 concentric arc segments centered at XX,YY.
 
     Angle convention:
         0 degrees points directly right.
@@ -395,46 +576,47 @@ Constructor
         180 degrees points left.
         270 degrees points downward.
 
-    The first wave has radius:
-        R * S
-
-    Each additional wave is spaced farther out by:
-        2 * R * S
-
     Rendered wave radii:
-        R * S
-        R * S + 2 * R * S
-        R * S + 4 * R * S
-
-    Simplified:
         1 * R * S
-        3 * R G* S
+        3 * R * S
         5 * R * S
+
+    Common angle encodings:
+        90 degrees  = 2I in Base-36
+        180 degrees = 50 in Base-36
+        270 degrees = 7I in Base-36
+        360 degrees = A0 in Base-36
 
 
 D: Moon
 -------
-    ICDXXYYSK****
+    Format:
+        ICDXXYYSK****
 
-    XX,YY = center point
-    S     = scale factor
-    K     = crater color
-    ****  = unused wildcard values
+    Fields:
+        XX,YY = center point
+        S     = scale factor
+        K     = crater color
+        ****  = unused wildcard values
 
-    Draws a filled moon centered at XX,YY.
+    Behavior:
+        Draws a filled moon centered at XX,YY.
 
-    The moon body uses the packet color C.
+    Moon body:
+        Uses packet color C.
 
     Rendered moon radius:
         36 * S
 
-    The moon also draws 10 outlined crater circles using color K.
+    Craters:
+        Draws 10 outlined crater circles using color K.
 
-    Crater positions are fixed and deterministic.
-    Crater centers are defined relative to the moon's bounding box,
-    measured from the top-left corner of the moon body.
+    Crater positions:
+        Crater centers are fixed and deterministic.
+        Positions are defined relative to the moon body's bounding box,
+        measured from the top-left corner of the moon body.
 
-    At scale 1, the crater center positions are located at:
+    Scale 1 crater center positions:
         - 1/5 from the left,  1/4 from the top
         - 3/7 from the left,  5/8 from the top
         - 1/4 from the left,  7/9 from the top
@@ -446,429 +628,85 @@ D: Moon
         - 3/20 from the left, 5/9 from the top
         - 3/4 from the left,  3/5 from the top
 
-    At scale 1, crater radii are:
+    Scale 1 crater radii:
         3, 5, 4, 2, 6, 3, 4, 2, 5, 3 pixels
 
     Rendered crater radius:
         base crater radius * S
 
-    Crescent moon rendering is a stretch goal and is not required for the
-    initial Moon macro.
+    Stretch Goal:
+        Crescent moon rendering is a stretch goal and is not required for the
+        initial Moon macro.
 
 
 E: DoubleBox
 ------------
-    ICEXXYYxxyyPP
+    Format:
+        ICEXXYYxxyyPP
 
-    XX,YY = first corner
-    xx,yy = opposite corner
-    PP    = percentage split position from the top, stored as two-character base-36
+    Fields:
+        XX,YY = first corner
+        xx,yy = opposite corner
+        PP    = percentage split position from the top, stored as two-character
+                Base-36
 
-    Draws an outlined rectangle, then draws a horizontal divider line across
-    the rectangle.
+    Behavior:
+        Draws an outlined rectangle, then draws a horizontal divider line across
+        the rectangle.
 
     The divider is placed PP percent down from the top edge of the rectangle,
     splitting the rectangle into a top box and a bottom box.
 
-    PP is clamped to the range 0-100 decimal.
+    PP Handling:
+        PP is decoded as Base-36, then clamped to the range 0-100 decimal.
 
+    Common percentage encodings:
+        0%   = 00 in Base-36
+        25%  = 0P in Base-36
+        50%  = 1E in Base-36
+        75%  = 23 in Base-36
+        100% = 2S in Base-36
 
 ################################################################################################################################################################
 
-Reconstructor
-=====================
+CONSTRUCTOR PROGRAM DOCUMENTATION
+=================================
 
-Reconstructor Program:
-----------------------
-    The Reconstructor program is responsible for rebuilding a final EMEIMG
-    image from received or loaded EMEIMG packet data.
-
-    The Reconstructor does not create image geometry interactively.
-
-    It reads packet strings, validates them, parses them into drawing
-    instructions, sorts them by instruction index, removes exact duplicates
-    when appropriate, renders the image onto the fixed EMEIMG canvas, and saves
-    the reconstructed image as a PNG file.
-
-    The Reconstructor represents the receiving-side image rebuild stage of the
-    EMEIMG workflow.
-
-
-Input Sources:
---------------
-    The Reconstructor may load packet data from:
-
-        - hard-coded prototype command lists
-        - Constructor output files
-        - Feeder decoded-output files
-        - manually edited packet test files
-
-    The expected useful input is one packet command per line.
-
-    A packet line may be:
-
-        <13-character EMEIMG packet>
-
-    or:
-
-        <13-character EMEIMG packet>[PRIORITY]
-
-    or, when loaded from a Feeder .emeimgout test export:
-
-        "PACKET",
-
-    The Reconstructor should recover the 13-character EMEIMG packet from these
-    formats before parsing.
-
-
-Canvas:
--------
-    The Reconstructor creates a fixed output image canvas:
-
-        Width  = 720 pixels
-        Height = 480 pixels
-
-    The canvas background is white by default.
-
-    All valid drawing instructions are rendered onto this canvas.
-
-    Drawing off the visible canvas area should not crash the Reconstructor.
-    Off-canvas geometry may simply be clipped by the image library.
-
-
-Packet Handling:
-----------------
-    Each EMEIMG image packet is exactly 13 characters.
-
-    Packet format:
-
-        ICSXXXXXXXXXX
-
-    Where:
-
-        I = instruction index / render order
-        C = color code
-        S = shape code
-        X = shape-specific payload data
-
-    The parser should read:
-
-        packet[0]    -> instruction index
-        packet[1]    -> color code
-        packet[2]    -> shape code
-        packet[3:13] -> shape-specific payload
-
-    Most numeric fields are decoded as base-36.
-
-    Two-character fields such as XX, YY, xx, yy, OO, DD, and PP are decoded as
-    two-character base-36 numbers.
-
-
-Text Packet Handling:
----------------------
-    Shape 0 uses the final six payload characters as literal text.
-
-    Because spaces may be valid text characters, the Reconstructor must not
-    strip trailing spaces from packet strings before parsing.
-
-    When reading packet lines from a file, the Reconstructor should remove
-    newline characters only.
-
-    Recommended line cleanup:
-
-        line = line.rstrip("\\r\\n")
-
-    Avoid:
-
-        line = line.strip()
-
-    because this can destroy meaningful trailing spaces in Shape 0 text packets.
-
-
-Priority Metadata Handling:
----------------------------
-    The [PRIORITY] tag is not part of the 13-character EMEIMG packet.
-
-    The Reconstructor must ignore [PRIORITY] when rendering.
-
-    A priority-tagged packet and a non-priority packet with the same first
-    13 characters must render identically.
-
-    Example:
-
-        0300A0FKE9ETA
-        0300A0FKE9ETA[PRIORITY]
-
-    Both should render the same text element.
-
-    The [PRIORITY] tag is only transmission metadata for the Feeder program.
-
-
-Feeder Export Handling:
------------------------
-    Feeder .emeimgout files may contain packets in this format:
-
-        "PACKET",
-
-    Example:
-
-        "IC2000014140*",
-
-    When reading this format, the Reconstructor should remove only the wrapper
-    characters outside the packet:
-
-        leading quote
-        trailing quote
-        trailing comma
-
-    The extracted packet must still be exactly 13 characters.
-
-    The Reconstructor should not attempt to render station ID packets, version
-    headers, closing 73 packets, console labels, [DECODED], [NO DECODE], or
-    [PRIORITY] metadata.
-
-
-Parsing Behavior:
------------------
-    The parser converts a valid 13-character packet into an internal parsed
-    instruction dictionary.
-
-    Each parsed instruction should include at minimum:
-
-        op      = internal operation name
-        index   = decoded instruction index
-        color   = resolved drawing color
-        raw     = original 13-character packet
-
-    Shape-specific fields are decoded according to the current EMEIMG packet
-    specification.
-
-    Examples:
-
-        Line packets decode endpoint coordinates.
-
-        Rectangle packets decode opposite corners and a fill flag.
-
-        Ellipse packets decode center point, vertical radius, horizontal
-        radius, scale, and fill flag.
-
-        Macro packets decode their origin/center point and any scale,
-        orientation, color, angle, or percentage fields required by that macro.
-
-
-Invalid Packet Behavior:
-------------------------
-    Invalid packets must not crash the Reconstructor.
-
-    If a packet is malformed, the Reconstructor should:
-
-        1. Print a warning to the terminal.
-        2. Convert the packet into a VOID/no-op instruction.
-        3. Continue processing the remaining packets.
-
-    Recommended behavior:
-
-        bad packet -> print warning -> return VOID -> continue rendering
-
-    Example warning:
-
-        Invalid packet ignored: expected 13 chars, got 11: 0010000H0AF
-
-    VOID packets should not draw anything.
-
-
-Unknown Shape Behavior:
------------------------
-    If a packet has a valid length but uses an unknown or reserved shape code,
-    the Reconstructor should not crash.
-
-    Recommended behavior:
-
-        unknown shape -> print warning -> ignore packet
-
-    Unknown shape packets should not draw anything.
-
-
-Duplicate Packet Handling:
---------------------------
-    Exact duplicate packets may appear in received data because the Feeder may
-    transmit packets multiple times for redundancy.
-
-    The Reconstructor may remove exact duplicates before rendering.
-
-    Duplicate removal should compare the 13-character packet itself, not any
-    transmission metadata.
-
-    Example:
-
-        IC2000014140*
-        IC2000014140*
-        IC2000014140*[PRIORITY]
-
-    All represent the same drawing packet once metadata is removed.
-
-    Rendering the same packet multiple times should normally produce the same
-    final image, but deduplication keeps the reconstruction process cleaner and
-    avoids unnecessary repeated drawing operations.
-
-
-Render Order:
--------------
-    Packets are rendered by instruction index I, not by receive order or file
-    order.
-
-    This is important because transmitted packets may arrive out of order or
-    may be scheduled by priority rather than image layer order.
-
-    Recommended process:
-
-        1. Load packet lines.
-        2. Remove metadata/wrappers.
-        3. Parse packets.
-        4. Remove exact duplicates.
-        5. Sort parsed packets by instruction index.
-        6. Render sorted packets to the canvas.
-        7. Save the output PNG.
-
-    This allows the Feeder to transmit priority packets first without changing
-    the final reconstructed image.
-
-
-Rendering Behavior:
--------------------
-    The Reconstructor renders parsed packets onto the 720x480 canvas using the
-    current EMEIMG shape specification.
-
-    Rendering should be deterministic.
-
-    The same valid packet list should always produce the same output image.
-
-    The Reconstructor should not use random placement, random colors, or random
-    geometry.
-
-    All macro shapes must expand into deterministic vector geometry.
-
-
-Output:
--------
-    The Reconstructor saves the final reconstructed image as a PNG file.
-
-    Default prototype output filename:
-
-        output_image.png
-
-    If the file already exists, it may be overwritten.
-
-    The Reconstructor does not need to open an image viewer.
-
-    The safest prototype behavior is:
-
-        save PNG -> close image -> print completion message
-
-    Example completion message:
-
-        Image reconstruction complete.
-
-
-Console Output:
----------------
-    The Reconstructor may print status and warning messages to the terminal.
-
-    Useful console output includes:
-
-        - invalid packet warnings
-        - unknown shape warnings
-        - zero-scale shape warnings
-        - zero-radius shape warnings
-        - output file saved message
-
-    Console output is for debugging only.
-
-    Console messages are not part of the reconstructed image and are not packet
-    data.
-
-
-Recommended Reconstructor Workflow:
------------------------------------
-    1. Create a blank 720x480 white image.
-    2. Load command lines from the selected input source.
-    3. For each line:
-        - remove newline characters only
-        - remove [PRIORITY] if present
-        - unwrap "PACKET", format if present
-        - preserve the 13-character packet exactly
-    4. Parse each packet.
-    5. Convert malformed packets into VOID/no-op instructions.
-    6. Remove exact duplicate valid packets.
-    7. Sort parsed commands by instruction index.
-    8. Render each parsed command.
-    9. Save the reconstructed PNG.
-    10. Print a completion message.
-
-
-Separation of Roles:
---------------------
-    The Reconstructor is only responsible for rebuilding the image.
-
-    It should not:
-
-        - create new image geometry
-        - assign instruction indexes
-        - edit packet layers
-        - schedule transmissions
-        - repeat priority packets
-        - simulate decode loss
-        - insert station ID
-        - insert version headers
-        - transmit through WSJT-X or MAP65
-
-    Those responsibilities belong to the Constructor and Feeder programs.
-
-    The Reconstructor should remain a deterministic receiver-side renderer.
-
-################################################################################################################################################################
-
-Constructor
-=====================
-
-Constructor Program:
---------------------
+Purpose:
     The Constructor GUI is a packet-first visual editor for creating EMEIMG
     instruction files.
 
-    The GUI does not store arbitrary drawing objects as the primary source of
-    truth. Instead, each completed layer is stored as an EMEIMG packet string.
+    The Constructor does not treat arbitrary GUI drawing objects as the primary
+    source of truth. Each completed layer is stored as an EMEIMG packet string.
     The preview canvas is reconstructed by parsing and rendering the same
-    packet strings that will later be saved and transmitted.
+    packets that will later be saved and transmitted.
 
-    This ensures that any image created in the Constructor is already valid
-    according to the packet reconstruction protocol.
+    This ensures that images created in the Constructor are already compatible
+    with the Reconstructor.
 
 Canvas:
--------
     The GUI editing canvas represents the fixed EMEIMG image canvas:
 
         Width  = 720 pixels
         Height = 480 pixels
 
-    Only the editable 720x480 region should be shown as the active drawing
-    area. Any surrounding GUI space is not part of the reconstructed image.
+    Only the editable 720x480 region is part of the reconstructed image.
 
 Basic Workflow:
----------------
-    The normal Constructor workflow is:
+    1. Select a color.
+    2. Select a shape.
+    3. Click the canvas to define the shape origin.
+    4. If required by the shape, click a second point.
+    5. Adjust shape-specific fields.
+    6. Optionally mark the element as Critical / Priority.
+    7. Click "Add Command" to save the packet as a layer.
+    8. Export the final packet list as a .emeimg file.
 
-        1. Select a color.
-        2. Select a shape.
-        3. Click the canvas to define the shape origin.
-        4. If required by the shape, click a second point.
-        5. Adjust shape-specific fields if needed.
-        6. Click "Add Command" to save the packet as a layer.
+Layer / Packet List:
+    Each saved layer corresponds to one EMEIMG packet line.
 
-    Each saved layer corresponds to one packet line.
-
-    The Constructor automatically assigns the packet instruction index I
-    based on the current layer/order position.
+    The Constructor automatically assigns the packet instruction index I based
+    on the layer/order position.
 
     Example:
         First saved command  -> I = 0
@@ -878,240 +716,168 @@ Basic Workflow:
     The instruction index ranges from 0 to Z, giving a maximum of 36 ordered
     packet instructions.
 
-Layer / Packet List:
---------------------
-    The GUI maintains a list of saved packet commands.
+    Deleting or reordering layers should renumber packet instruction indexes so
+    that the first command is 0, the second command is 1, and so on.
 
-    Each list entry represents one EMEIMG drawing instruction.
+Preview Behavior:
+    The main preview renders saved packets using the same parsing and rendering
+    behavior as the Reconstructor.
 
-    The main preview renders all commands up to the current selected layer.
-    This allows the user to preview the image build-up step by step.
+    The preview should ignore [PRIORITY] when drawing.
 
-    The final image preview renders all saved commands in instruction order.
+    Priority changes transmission behavior only. Priority does not change color,
+    geometry, shape behavior, or render order.
 
-    Deleting or reordering layers should renumber packet instruction indexes
-    so that the first command is 0, the second command is 1, and so on.
+Shape Field Behavior:
+    The command builder should expose only fields relevant to the currently
+    selected shape.
 
-Command Builder Fields:
------------------------
-    The command builder exposes only fields relevant to the currently selected
-    shape.
+    Irrelevant fields should be disabled or visually muted.
 
-    Irrelevant fields should be disabled or visually muted so the user does
-    not accidentally edit parameters that are unused by the selected shape.
-
-    Field relevance by shape:
+    Shape field guide:
 
         0: Text
-            Editable fields:
-                Text
+            Canvas:
+                click = text origin
+            Fields:
+                text payload, exactly 6 characters after padding/truncation
 
         1: Line
-            Editable fields:
-                None
-            Uses:
-                First canvas click  = first endpoint
-                Second canvas click = second endpoint
+            Canvas:
+                first click  = first endpoint
+                second click = second endpoint
+            Fields:
+                none required beyond the two clicked points
 
         2: Rectangle
-            Editable fields:
-                Fill
-
-            Uses:
-                First canvas click  = first corner
-                Second canvas click = opposite corner
+            Canvas:
+                first click  = first corner
+                second click = opposite corner
+            Fields:
+                fill flag
 
         3: Ellipse
-            Editable fields:
-                Radius H / R
-                Radius W / r
-                Scale
-                Fill
-
-            Uses:
-                Canvas click = center point
+            Canvas:
+                click = center point
+            Fields:
+                vertical radius R
+                horizontal radius r
+                scale
+                fill flag
 
         4: Triangle Outline
-            Editable fields:
-                Orientation
-                Scale
-
-            Uses:
-                Canvas click = origin point
+            Canvas:
+                click = origin vertex
+            Packet fields:
+                V, L, D, R, orientation, scale
+            GUI note:
+                The GUI may expose V/L/D/R directly or use configured default
+                triangle vectors. Orientation and scale should be exposed at
+                minimum.
 
         5: Triangle Fill
-            Editable fields:
-                Orientation
-                Scale
-
-            Uses:
-                Canvas click = origin point
+            Canvas:
+                click = origin vertex
+            Packet fields:
+                V, L, D, R, orientation, scale
+            GUI note:
+                Same field behavior as Shape 4, but filled.
 
         6: Arrow
-            Editable fields:
-                Orientation
-                Scale
-
-            Uses:
-                Canvas click = arrow tip / vertex
+            Canvas:
+                click = arrow tip / vertex
+            Fields:
+                orientation
+                scale
 
         7: Star
-            Editable fields:
-                Radius H / R
-                Scale
-
-            Uses:
-                Canvas click = center point
+            Canvas:
+                click = center point
+            Fields:
+                radius
+                scale
 
         8: SemiCircle / Arc
-            Editable fields:
-                Radius H / R
-                Scale
-                Start Angle OO
-                Arc Degrees DD
-
-            Uses:
-                Canvas click = center point
+            Canvas:
+                click = center point
+            Fields:
+                radius
+                scale
+                start angle OO
+                arc degrees DD
 
         9: Yagi Antenna
-            Editable fields:
-                Orientation
-                Scale
-
-            Uses:
-                Canvas click = macro origin point
+            Canvas:
+                click = macro origin point
+            Fields:
+                orientation
+                scale
 
         A: Dish Antenna
-            Editable fields:
-                Orientation
-                Scale
-
-            Uses:
-                Canvas click = dish origin point
+            Canvas:
+                click = dish origin / center point
+            Fields:
+                facing direction
+                scale
 
         B: Radio Transceiver
-            Editable fields:
-                Scale
-
-            Uses:
-                Canvas click = top-left macro origin point
+            Canvas:
+                click = top-left macro origin point
+            Fields:
+                scale
 
         C: Radio Waves
-            Editable fields:
-                Radius H / R
-                Scale
-                Start Angle OO
-                Arc Degrees DD
-
-            Uses:
-                Canvas click = center point
+            Canvas:
+                click = center point
+            Fields:
+                radius
+                scale
+                start angle OO
+                arc degrees DD
 
         D: Moon
-            Editable fields:
-                Scale
-                Crater Color K
-
-            Uses:
-                Canvas click = center point
+            Canvas:
+                click = center point
+            Fields:
+                scale
+                crater color K
 
         E: DoubleBox
-            Editable fields:
-                Divider %
-
-            Uses:
-                First canvas click  = first corner
-                Second canvas click = opposite corner
-
+            Canvas:
+                first click  = first corner
+                second click = opposite corner
+            Fields:
+                divider percentage PP
 
 Critical Element / Priority Metadata:
--------------------------------------
     The Constructor GUI includes a "Critical Element" checkbox.
 
-    When checked, the saved command line receives a metadata tag appended to
-    the end of the packet line:
+    When checked, the saved command line receives this metadata tag appended
+    after the 13-character packet:
 
         [PRIORITY]
 
-    The priority tag is not part of the 13-character EMEIMG packet.
-
-    The priority tag is transmission metadata used by the later feeder program
-    that reads Constructor output and feeds commands into WSJT-X.
-
-    The purpose of the tag is to identify elements that should receive extra
-    transmission redundancy.
-
-    A priority-tagged command line has this structure:
-
-        <13-character EMEIMG packet>[PRIORITY]
-
-    There is no separator character between the packet and the metadata tag.
-
-    Example using a text packet:
-
+    Example:
         0300A0FKE9ETA[PRIORITY]
 
     In that example:
+        0            = instruction index
+        3            = color code
+        0            = text shape
+        0A0F         = text origin coordinate
+        KE9ETA       = six-character text payload
+        [PRIORITY]   = metadata tag, not packet data
 
-        0       = instruction index
-        3       = color code
-        0       = text shape
-        0A0F    = text origin coordinate
-        KE9ETA  = six-character text payload
-        [PRIORITY] = metadata tag, not packet data
-
-    The Constructor preview and image reconstructor must ignore the priority
-    tag when rendering.
-
-    The packet parser should strip or separate [PRIORITY] before interpreting
-    the 13-character packet.
-
+Priority Preservation:
     The priority flag should be preserved when saving, loading, editing, or
     renumbering command layers.
 
-Priority Transmission Behavior:
--------------------------------
-    The [PRIORITY] tag is intended for the transmission feeder program, not
-    the image renderer.
+    The [PRIORITY] tag must begin after the 13th packet character.
 
-    The feeder program may use [PRIORITY] to send important packets more times
-    than non-priority packets.
+Constructor Output Format:
+    Save one command per line.
 
-    This allows limited JT65B send cycles to be spent more intelligently.
-
-    Important structural or identifying elements can receive additional
-    redundancy, while minor cosmetic elements can be transmitted fewer times.
-
-    Examples of elements that may be marked [PRIORITY]:
-
-        - Callsign text
-        - Main subject outline
-        - Required identifying symbols
-        - Critical geometry needed for image recognition
-        - Important Moon / antenna / radio elements
-        - Any element that would significantly damage the meaning of the image
-          if lost
-
-    Examples of elements that may be left non-priority:
-
-        - Decorative stars
-        - Cosmetic background details
-        - Optional accent lines
-        - Minor visual embellishments
-
-    Priority does not change render order.
-
-    Priority does not change packet geometry.
-
-    Priority does not change the 13-character packet contents.
-
-    Priority only informs the later transmission scheduler that the element
-    should receive additional redundancy.
-
-File Format Notes:
-------------------
-    Constructor output should be saved as one command per line.
-
-    A command line may be either:
+    Valid line formats:
 
         <13-character EMEIMG packet>
 
@@ -1119,219 +885,148 @@ File Format Notes:
 
         <13-character EMEIMG packet>[PRIORITY]
 
-    The [PRIORITY] tag must appear after the complete 13-character packet.
-
-    If a packet contains trailing spaces as unused wildcard/padding values,
-    those spaces are still part of the 13-character packet. The [PRIORITY]
-    tag begins after the 13th packet character.
-
     File readers should remove newline characters only.
 
     Do not strip trailing packet spaces before packet parsing.
 
-    Recommended loading process:
-
-        1. Read one line.
-        2. Remove newline characters only.
-        3. Check whether the line ends with [PRIORITY].
-        4. If present, remove [PRIORITY] and store priority=True.
-        5. Parse the remaining 13-character packet.
-        6. Render the packet normally.
-        7. Preserve priority metadata for later transmission scheduling.
-
-Rendering Behavior:
--------------------
-    The GUI preview renderer should ignore [PRIORITY].
-
-    The standalone image reconstructor should also ignore [PRIORITY].
-
-    Rendering should only use the 13-character EMEIMG packet.
-
-    A priority-tagged packet and a non-priority packet with the same first
-    13 characters should render identically.
-
-    Example:
-
-        0300A0FKE9ETA
-        0300A0FKE9ETA[PRIORITY]
-
-    Both render the same text element.
-
-    The only difference is that the second command is marked for additional
-    transmission redundancy by the feeder program.
-
-
 ################################################################################################################################################################
 
-Feeder Program:
----------------
-    The Feeder GUI is responsible for taking a completed Constructor output
-    file and scheduling it for transmission.
+FEEDER PROGRAM DOCUMENTATION
+============================
+
+Purpose:
+    The Feeder GUI takes a completed Constructor output file and schedules it
+    for transmission.
 
     The Feeder does not generate image geometry.
 
-    The Feeder reads saved EMEIMG packet lines, identifies metadata such as
-    [PRIORITY], determines transmission order, applies redundancy rules,
-    inserts station identification, and outputs packets to the transmit path.
+    The Feeder reads saved EMEIMG packet lines, identifies [PRIORITY] metadata,
+    determines transmission order, applies redundancy rules, inserts station
+    identification, simulates receive-side no-decode events, and exports
+    successfully decoded image packets.
 
-    In the prototype version, the transmit path is represented by console
-    output.
+    In the prototype, the transmit path is represented by console output.
 
-    In a future version, this console output may be replaced with or connected
-    to a WSJT-X, MAP65, or other JT65B-capable transmit-control interface.
-
+    In a future version, the console output may be replaced by or connected to
+    WSJT-X, MAP65, or another JT65B-capable transmit-control interface.
 
 GUI Fields:
------------
-    The Feeder GUI contains the following user-editable fields:
+    Callsign:
+        Transmitting station callsign.
 
-        Callsign:
-            The transmitting station callsign.
+        Example:
+            KE9ETA
 
-            Example:
-                KE9ETA
+    EMEIMG Version Number:
+        Protocol / image format version number.
 
-        EMEIMG Version Number:
-            The protocol/image format version number.
+        Example:
+            1
 
-            Example:
-                1
+    Image Number:
+        Two-character Base-36 image identifier.
 
-        Image Number:
-            A two-character Base-36 image identifier.
+        Valid range:
+            00 through ZZ
 
-            Valid range:
-                00 through ZZ
+        Examples:
+            00
+            01
+            0A
+            10
+            ZZ
 
-            Examples:
-                00
-                01
-                0A
-                10
-                ZZ
+    Packet No Decode:
+        Numeric slider from 0% through 100%.
 
-        Packet No Decode:
-            A numeric slider from 0% through 100%.
+        This controls simulated receive-side decode failure rate.
 
-            This controls a simulated receive-side decode failure rate.
+        0%:
+            Every transmission attempt decodes successfully.
 
-            Example:
-                0%  = every transmission attempt is decoded
-                25% = roughly one out of four transmission attempts fail decode
-                50% = roughly half of transmission attempts fail decode
-                100% = no transmission attempts decode successfully
+        25%:
+            Each individual transmission attempt has a 25% chance of failing.
 
-            This setting is used only for prototype testing.
+        50%:
+            Each individual transmission attempt has a 50% chance of failing.
 
-            It does not change the transmitted packet schedule.
+        100%:
+            No transmission attempts decode successfully.
 
-            It only controls whether each scheduled transmission attempt is
-            considered successfully decoded by the simulated receiver.
-
+        This setting is for prototype robustness testing only.
 
 GUI Buttons:
-------------
     Open File:
-        Opens a text-based .emeimg file created by the Constructor program.
-
-        The file should contain one EMEIMG packet line per instruction.
+        Opens a text-based .emeimg file created by the Constructor.
 
     Transmit:
         Begins transmitting the loaded file according to Feeder scheduling
         rules.
 
-        In the prototype, each transmission attempt is printed to the console.
-
     Pause Transmit:
         Temporarily pauses the active transmission queue.
 
-        Pausing does not erase the queue and does not reset the current
+        Pause does not erase the queue and does not reset the current
         transmission position.
 
-        Resuming continues with the next unsent transmission.
+    Resume / Transmit after Pause:
+        Continues with the next unsent transmission.
 
     Stop Transmit:
         Stops the active transmission and resets the current transmit position.
 
         A stopped transmission must be restarted from the beginning.
 
-        If any image packets have already been successfully decoded, they may
-        still be exported.
-
     Export Decoded Output:
         Exports successfully decoded image packets to a .emeimgout file.
 
-        The default export filename is:
-
+        Default prototype export filename:
             test.emeimgout
 
-        The exported file is intended to be directly usable as a received-packet
-        test file for the image reconstructor.
-
-
 Code-Level Feeder Constants:
-----------------------------
-    The Feeder prototype uses several code-level constants to control test
-    behavior.
+    TX_INTERVAL_MS:
+        Delay between prototype console transmissions.
 
-    These are not currently exposed through the GUI.
+        Current prototype value:
+            1000 milliseconds
 
-        TX_INTERVAL_MS:
-            Delay between prototype console transmissions.
+        For real JT65B operation, this must be replaced by timing controlled by
+        WSJT-X, MAP65, or the chosen transmit interface.
 
-            Current prototype value:
-                1000 milliseconds
+    PRIORITY_REPEAT_COUNT:
+        Number of times priority packets are transmitted.
 
-            For real JT65B operation, this would need to be replaced by timing
-            controlled by WSJT-X, MAP65, or another transmit interface.
+        Current value:
+            3
 
-        PRIORITY_REPEAT_COUNT:
-            Number of times priority packets are transmitted.
+    NON_PRIORITY_REPEAT_COUNT:
+        Number of times non-priority image packets are transmitted.
 
-            Current value:
-                3
+        Current default value:
+            1
 
-        NON_PRIORITY_REPEAT_COUNT:
-            Number of times non-priority image packets are transmitted.
+        This is intentionally code-level in the current prototype so reliability
+        can be tested by editing one constant.
 
-            Current default value:
-                1
+    STATION_ID_EVERY_N_TRANSMISSIONS:
+        Controls automatic station ID insertion.
 
-            This value may be increased in code to test image robustness versus
-            total transmission time.
+        Current value:
+            10
 
-            Example:
-                NON_PRIORITY_REPEAT_COUNT = 1
-                    Non-priority packets are sent once.
+        Every 10th console transmission slot is reserved for:
+            [CALLSIGN] EMEIMG
 
-                NON_PRIORITY_REPEAT_COUNT = 2
-                    Non-priority packets are sent twice.
+    PRIORITY_TAG:
+        Metadata string used to mark priority packets.
 
-                NON_PRIORITY_REPEAT_COUNT = 3
-                    Non-priority packets are sent three times.
-
-        STATION_ID_EVERY_N_TRANSMISSIONS:
-            Controls automatic station ID insertion.
-
-            Current value:
-                10
-
-            Every 10th console transmission slot is reserved for:
-
-                [CALLSIGN] EMEIMG
-
-        PRIORITY_TAG:
-            Metadata string used to mark priority packets in .emeimg files.
-
-            Current value:
-                [PRIORITY]
-
+        Current value:
+            [PRIORITY]
 
 Input File Handling:
---------------------
     The Feeder reads Constructor output as one command per line.
 
-    Each command line may be either:
+    Valid Constructor input lines:
 
         <13-character EMEIMG packet>
 
@@ -1339,18 +1034,11 @@ Input File Handling:
 
         <13-character EMEIMG packet>[PRIORITY]
 
-    The [PRIORITY] tag is metadata only.
+    The Feeder may also tolerate decoded-output wrapper format for testing:
 
-    The [PRIORITY] tag is not transmitted as part of the EMEIMG packet.
+        "PACKET",
 
-    The Feeder should remove newline characters from each file line, but should
-    not strip trailing packet spaces before parsing the 13-character packet.
-
-    This is important because Shape 0 text packets may use spaces as literal
-    text payload characters.
-
-    Recommended Feeder loading process:
-
+    Recommended loading process:
         1. Read one line from the .emeimg file.
         2. Remove newline characters only.
         3. Ignore blank lines.
@@ -1358,120 +1046,70 @@ Input File Handling:
         5. Check whether the line ends with [PRIORITY].
         6. If [PRIORITY] is present, store priority=True.
         7. Remove the [PRIORITY] metadata tag.
-        8. Preserve the remaining 13-character packet exactly.
-        9. Add the packet to the transmission queue.
-
-    The Feeder may also tolerate exported packet format when loading test data:
-
-        "PACKET",
-
-    This wrapper is not part of the transmitted packet.
-
+        8. Unwrap "PACKET", if loading that test format.
+        9. Preserve the remaining 13-character packet exactly.
+        10. Add the packet to the transmission queue.
 
 Priority Metadata:
-------------------
-    The [PRIORITY] tag tells the Feeder that a packet should receive additional
-    transmit redundancy.
+    [PRIORITY] tells the Feeder that a packet should receive additional transmit
+    redundancy.
 
-    Priority does not change the packet contents.
+    Priority does not change:
+        - packet contents
+        - render order
+        - geometry
+        - color
+        - shape behavior
 
-    Priority does not change the packet's render order.
-
-    Priority does not change the packet's geometry, color, or shape behavior.
-
-    Priority only changes how the Feeder schedules transmission.
+    Priority only changes scheduling.
 
     A priority packet is transmitted according to:
-
         PRIORITY_REPEAT_COUNT
 
     Current value:
-
         3 transmissions
 
     Example file line:
-
         IC2000014140*[PRIORITY]
 
     Actual transmitted packet:
-
         IC2000014140*
 
     The [PRIORITY] label must never be exported into .emeimgout receiver test
     files.
 
-
 Non-Priority Repeat Behavior:
------------------------------
     Non-priority packets are transmitted according to:
-
         NON_PRIORITY_REPEAT_COUNT
 
-    The default value is:
-
+    Default value:
         1 transmission
 
-    This value is intentionally code-level rather than GUI-level in the current
-    prototype.
-
-    It allows robustness testing by changing a single constant in the Feeder
-    source code.
-
-    Example behavior:
-
+    Example:
         PRIORITY_REPEAT_COUNT = 3
         NON_PRIORITY_REPEAT_COUNT = 1
 
-            Priority packet:
-                sent 3 times
+        Priority packet:
+            sent 3 times
 
-            Non-priority packet:
-                sent 1 time
-
-        PRIORITY_REPEAT_COUNT = 3
-        NON_PRIORITY_REPEAT_COUNT = 2
-
-            Priority packet:
-                sent 3 times
-
-            Non-priority packet:
-                sent 2 times
-
-        PRIORITY_REPEAT_COUNT = 3
-        NON_PRIORITY_REPEAT_COUNT = 3
-
-            Priority packet:
-                sent 3 times
-
-            Non-priority packet:
-                sent 3 times
+        Non-priority packet:
+            sent 1 time
 
     Increasing NON_PRIORITY_REPEAT_COUNT improves the odds that non-priority
     packets survive decode loss, but increases total transmission time.
 
-    This is useful for testing the sweet spot between efficient transmission
-    and final image reliability.
-
-
 Automatic Feeder Packets:
--------------------------
-    The Feeder automatically generates several transmission packets that are
-    not stored as normal Constructor drawing instructions.
+    The Feeder automatically generates several transmission packets that are not
+    normal Constructor drawing instructions.
 
-    These packets are used for station identification, image session
-    identification, and transmission closure.
-
-    These automatic packets are not exported into .emeimgout files.
-
+    These are not exported into .emeimgout files.
 
 Opening Station ID Header:
---------------------------
-    Before sending image data, the Feeder sends:
+    Before image data, the Feeder sends:
 
         [CALLSIGN] EMEIMG
 
     Example:
-
         KE9ETA EMEIMG
 
     This identifies the transmitting station and indicates that an EMEIMG
@@ -1479,77 +1117,48 @@ Opening Station ID Header:
 
     The opening station ID header is treated as a priority transmission.
 
-    It is transmitted:
-
+    Current transmission count:
         PRIORITY_REPEAT_COUNT times
 
-    Current value:
-
-        3 times
-
-
 Version Header:
----------------
-    After the opening station ID header, the Feeder sends the image version
-    header:
+    After the opening station ID header, the Feeder sends:
 
         EMEIMGV[version][image number]
 
     Example:
-
         EMEIMGV100
 
-    This packet identifies the EMEIMG version and the image number being
-    transmitted.
+    This identifies the EMEIMG version and image number being transmitted.
 
     The version header is treated as a priority transmission.
 
-    It is transmitted:
-
+    Current transmission count:
         PRIORITY_REPEAT_COUNT times
 
-    Current value:
-
-        3 times
-
-    The version header is not an image drawing packet.
-
-    It is not exported into .emeimgout files.
-
-
 Image Packet Scheduling:
-------------------------
-    After the automatic opening headers are sent, the Feeder schedules the
-    packets loaded from the .emeimg file.
-
-    Priority packets are sent before non-priority packets.
-
-    Order is preserved within each priority group.
+    After automatic opening headers, the Feeder schedules packets loaded from
+    the .emeimg file.
 
     Recommended scheduling process:
-
         1. Load all packet lines from the .emeimg file.
         2. Separate priority packets from non-priority packets.
-        3. Preserve the original file order inside each group.
+        3. Preserve original file order inside each group.
         4. Queue all priority packets first.
         5. Queue all non-priority packets after priority packets.
         6. Repeat each priority packet PRIORITY_REPEAT_COUNT times.
         7. Repeat each non-priority packet NON_PRIORITY_REPEAT_COUNT times.
 
     Example file order:
-
         Packet A
         Packet B[PRIORITY]
         Packet C
         Packet D[PRIORITY]
 
     With:
-
         PRIORITY_REPEAT_COUNT = 3
         NON_PRIORITY_REPEAT_COUNT = 1
 
     Feeder scheduling order:
-
         Packet B
         Packet B
         Packet B
@@ -1559,336 +1168,567 @@ Image Packet Scheduling:
         Packet A
         Packet C
 
-    With:
-
-        PRIORITY_REPEAT_COUNT = 3
-        NON_PRIORITY_REPEAT_COUNT = 2
-
-    Feeder scheduling order:
-
-        Packet B
-        Packet B
-        Packet B
-        Packet D
-        Packet D
-        Packet D
-        Packet A
-        Packet A
-        Packet C
-        Packet C
-
-    This transmission ordering does not affect final render order because the
-    reconstructor renders packets by their instruction index I, not by receive
-    order.
-
+    This does not affect final render order because the Reconstructor renders
+    by instruction index I, not receive order.
 
 Station ID During Transmission:
--------------------------------
-    The Feeder periodically inserts the station ID during the transmission.
-
-    Every 10th console transmission slot is reserved for:
+    The Feeder periodically inserts:
 
         [CALLSIGN] EMEIMG
 
     Example:
-
         KE9ETA EMEIMG
 
-    This provides repeated station identification during a long EMEIMG
-    transmission.
+    Current spacing:
+        Every 10th console transmission slot.
 
-    The inserted station ID is not an image drawing packet.
-
-    It is not exported into .emeimgout files.
-
-    It should not be parsed as an EMEIMG drawing instruction by the image
-    reconstructor.
-
-    Example transmission spacing:
-
-        0001: KE9ETA EMEIMG
-        0002: KE9ETA EMEIMG
-        0003: KE9ETA EMEIMG
-        0004: EMEIMGV100
-        0005: EMEIMGV100
-        0006: EMEIMGV100
-        0007: priority image packet
-        0008: priority image packet
-        0009: priority image packet
-        0010: KE9ETA EMEIMG
-        0011: next image packet
-
+    Inserted station ID is not an image drawing packet and is not exported into
+    .emeimgout files.
 
 Final Closing Packet:
----------------------
-    After all image packets have been transmitted, the Feeder sends a closing
-    packet:
+    After all image packets have been transmitted, the Feeder sends:
 
         [CALLSIGN] 73
 
     Example:
-
         KE9ETA 73
 
-    The closing packet indicates that the EMEIMG transmission is complete.
+    This indicates that the EMEIMG transmission is complete.
 
-    The closing packet is treated as a priority transmission.
+    The closing packet is treated as priority.
 
-    It is transmitted:
-
+    Current transmission count:
         PRIORITY_REPEAT_COUNT times
 
-    Current value:
-
-        3 times
-
-    The closing packet is not an image drawing packet.
-
-    It is not exported into .emeimgout files.
-
-
 Overall Transmission Order:
----------------------------
-    The complete Feeder transmission sequence is:
-
-        1. Send [CALLSIGN] EMEIMG PRIORITY_REPEAT_COUNT times.
-        2. Send EMEIMGV[version][image number] PRIORITY_REPEAT_COUNT times.
-        3. Sort loaded file packets with priority packets first.
-        4. Send priority image packets PRIORITY_REPEAT_COUNT times each.
-        5. Send non-priority image packets NON_PRIORITY_REPEAT_COUNT times each.
-        6. Insert [CALLSIGN] EMEIMG into every 10th transmission slot.
-        7. Send [CALLSIGN] 73 PRIORITY_REPEAT_COUNT times after all image
-           packets are complete.
-
+    1. Send [CALLSIGN] EMEIMG PRIORITY_REPEAT_COUNT times.
+    2. Send EMEIMGV[version][image number] PRIORITY_REPEAT_COUNT times.
+    3. Sort loaded file packets with priority packets first.
+    4. Send priority image packets PRIORITY_REPEAT_COUNT times each.
+    5. Send non-priority image packets NON_PRIORITY_REPEAT_COUNT times each.
+    6. Insert [CALLSIGN] EMEIMG into every 10th transmission slot.
+    7. Send [CALLSIGN] 73 PRIORITY_REPEAT_COUNT times after all image packets
+       are complete.
 
 Packet No Decode Simulation:
-----------------------------
-    The Packet No Decode slider simulates receive-side packet decode failure.
-
     Each scheduled transmission attempt is still printed to the console.
 
-    For each transmission attempt, the Feeder runs an independent random
-    number check.
+    For each attempt, the Feeder runs an independent random number check.
 
-    If the random check fails, the console marks the attempt as:
+    Failed decode:
+        Console marks the attempt as [NO DECODE].
 
-        [NO DECODE]
-
-    If the random check succeeds, the console marks the attempt as:
-
-        [DECODED]
+    Successful decode:
+        Console marks the attempt as [DECODED].
 
     Only successfully decoded image packets are stored for .emeimgout export.
 
     Station ID packets, version headers, and closing 73 packets may be marked
-    [DECODED] in the console, but they are still not exported because they are
-    not image drawing packets.
-
-    Packet No Decode examples:
-
-        0%:
-            All transmission attempts decode successfully.
-
-        25%:
-            Each individual transmission attempt has a 25% chance of failing
-            decode.
-
-        50%:
-            Each individual transmission attempt has a 50% chance of failing
-            decode.
-
-        100%:
-            All transmission attempts fail decode.
-
-    The random behavior is statistical.
-
-    A 25% Packet No Decode setting does not guarantee exactly one failed decode
-    out of every four attempts in a short transmission.
-
-    Over many attempts, the failed decode rate should approach the selected
-    percentage.
-
+    [DECODED] in the console, but they are not exported because they are not
+    image drawing packets.
 
 Console Output:
----------------
-    In the prototype Feeder, transmissions are printed to the console.
-
-    Console output is a stand-in for a future transmit interface.
-
-    The console should show:
-
-        - Transmission number
-        - Transmitted text
-        - Transmission type/source
-        - Decode simulation result
+    Prototype console output should show:
+        - transmission number
+        - transmitted text
+        - transmission type/source
+        - decode simulation result
 
     Example:
-
-        0001: KE9ETA EMEIMG    [priority-header]    [DECODED]
-        0002: KE9ETA EMEIMG    [priority-header]    [DECODED]
-        0003: KE9ETA EMEIMG    [priority-header]    [NO DECODE]
+        0001: KE9ETA EMEIMG    [priority-header]            [DECODED]
+        0002: KE9ETA EMEIMG    [priority-header]            [DECODED]
+        0003: KE9ETA EMEIMG    [priority-header]            [NO DECODE]
         0004: EMEIMGV100       [priority-version-header]    [DECODED]
-        0005: EMEIMGV100       [priority-version-header]    [DECODED]
-        0006: EMEIMGV100       [priority-version-header]    [DECODED]
-        0007: IC2000014140*    [priority-packet]    [DECODED]
+        0005: IC2000014140*    [priority-packet]            [DECODED]
 
     Console labels are not part of the transmitted EMEIMG packet.
 
-    Console labels must not be exported into receiver test files.
-
-
 Decoded Output Export:
-----------------------
-    The Feeder can export successfully decoded image packets into a .emeimgout
-    file.
+    The Feeder exports successfully decoded image packets to a .emeimgout file.
 
-    The default export filename is:
-
+    Default export filename:
         test.emeimgout
 
-    The export contains only decoded 13-character EMEIMG image packets.
+    Export contains only decoded 13-character EMEIMG image packets.
 
-    The export does not include:
-
+    Export does not include:
         - [PRIORITY]
         - [DECODED]
         - [NO DECODE]
-        - Console transmission numbers
-        - Console source labels
-        - Station ID packets
-        - Version header packets
-        - Closing 73 packets
+        - console transmission numbers
+        - console source labels
+        - station ID packets
+        - version header packets
+        - closing 73 packets
 
     Correct export format:
-
         "PACKET",
 
     Example:
-
         "IC2000014140*",
         "IC7AA55A2****",
         "IC10000KE9ETA",
 
-    Incorrect export formats:
-
+    Incorrect export examples:
         IC2000014140*[PRIORITY]
-
         "IC2000014140*[PRIORITY]",
-
         0007: IC2000014140*    [priority-packet]    [DECODED]
-
         "KE9ETA EMEIMG",
-
         "EMEIMGV100",
-
         "KE9ETA 73",
 
     Duplicate successfully decoded image packets may appear in the exported
     file if the same packet was successfully decoded more than once.
 
-    This is expected.
-
-    The reconstructor may remove exact duplicate packets before rendering.
-
-
-Transmit Timing:
-----------------
-    The prototype Feeder uses a shortened delay between console outputs for
-    testing.
-
-    Current prototype timing:
-
-        TX_INTERVAL_MS = 1000
-
-    This means the prototype sends one console transmission approximately once
-    per second.
-
-    In real JT65B operation, the timing would need to respect the JT65B
-    transmission cycle and whatever timing/API constraints are required by
-    WSJT-X, MAP65, or the chosen transmit interface.
-
+    This is expected. The Reconstructor may remove exact duplicates before
+    rendering.
 
 Pause / Resume Behavior:
-------------------------
-    When paused, the Feeder should stop advancing through the transmission
-    queue.
+    When paused, the Feeder stops advancing through the transmission queue.
 
-    The current queue should remain intact.
+    The queue remains intact.
 
-    When resumed, the Feeder should continue from the next unsent item.
+    When resumed, the Feeder continues from the next unsent item.
 
     Pause should not rebuild or reorder the queue.
 
     Pause should not clear the decoded packet export buffer.
 
-
 Stop Behavior:
---------------
-    When stopped, the Feeder should cancel the active transmission queue and
-    reset the transmit position.
+    When stopped, the Feeder cancels the active transmission queue and resets
+    the transmit position.
 
-    Restarting transmission after a stop should rebuild the queue from the
-    currently loaded file and current GUI field values.
+    Restarting after stop should rebuild the queue from the currently loaded
+    file and current GUI field values.
 
     If image packets were successfully decoded before Stop was pressed, the
     Feeder may allow those partial results to be exported.
 
-
 Error Handling:
----------------
     The Feeder should not crash if a file contains malformed lines.
 
     Recommended behavior:
-
         bad line -> report warning -> skip line -> continue
 
-    Lines that are blank should be ignored.
-
-    Lines beginning with comment markers may be ignored.
-
-    Suggested comment markers:
-
-        #
-        //
-
-    If a packet is not exactly 13 characters after removing [PRIORITY], the
+    If a packet is not exactly 13 characters after metadata/wrapper removal, the
     Feeder should report it as malformed.
 
-    If a malformed packet is skipped, the console should identify the source
-    line number when possible.
-
+    If possible, warnings should include the source line number.
 
 ################################################################################################################################################################
 
-Important Separation of Roles:
-------------------------------
-    Constructor:
-        Creates packet lines and optionally appends [PRIORITY].
+RECONSTRUCTOR PROGRAM DOCUMENTATION
+===================================
 
-    Feeder:
-        Reads packet lines, schedules transmissions, repeats priority and
-        non-priority items, inserts station ID, simulates decode failures, and
-        exports successfully decoded image packets.
+Purpose:
+    The Reconstructor rebuilds a final EMEIMG image from received or loaded
+    EMEIMG packet data.
 
-    Reconstructor:
-        Ignores [PRIORITY] and reconstructs the image from valid 13-character
-        EMEIMG packets.
+    The Reconstructor does not create image geometry interactively.
 
-    The Feeder is part of the transmission system, not the image renderer.
+    It reads packet strings, validates them, parses them into drawing
+    instructions, sorts them by instruction index, removes exact duplicates when
+    appropriate, renders the image onto the fixed EMEIMG canvas, and saves the
+    reconstructed image as a PNG file.
 
+    The Reconstructor represents the receiving-side image rebuild stage of the
+    EMEIMG workflow.
+
+Input Sources:
+    The Reconstructor may load packet data from:
+        - hard-coded prototype command lists
+        - Constructor .emeimg output files
+        - Feeder .emeimgout decoded-output files
+        - manually edited packet test files
+
+    Current GUI expectation:
+        User selects a .emeimgout file to compile/reconstruct.
+
+Accepted Input Line Formats:
+    Plain packet:
+        <13-character EMEIMG packet>
+
+    Priority-tagged Constructor line:
+        <13-character EMEIMG packet>[PRIORITY]
+
+    Feeder decoded-output line:
+        "PACKET",
+
+    The Reconstructor should recover the 13-character EMEIMG packet from these
+    formats before parsing.
+
+Ignored Non-Image Data:
+    The Reconstructor should not render:
+        - station ID packets
+        - version headers
+        - closing 73 packets
+        - console labels
+        - [DECODED]
+        - [NO DECODE]
+        - [PRIORITY] metadata
+
+Canvas:
+    The Reconstructor creates a fixed output image canvas:
+
+        Width  = 720 pixels
+        Height = 480 pixels
+
+    Background:
+        white by default
+
+    All valid drawing instructions are rendered onto this canvas.
+
+Packet Handling:
+    Each EMEIMG image packet is exactly 13 characters.
+
+    Packet format:
+        ICSXXXXXXXXXX
+
+    Parser indexing:
+        packet[0]    -> instruction index
+        packet[1]    -> color code
+        packet[2]    -> shape code
+        packet[3:13] -> shape-specific payload
+
+    Most numeric fields are decoded as Base-36.
+
+    Two-character fields such as XX, YY, xx, yy, OO, DD, and PP are decoded as
+    two-character Base-36 numbers.
+
+Text Packet Handling:
+    Shape 0 uses the final six payload characters as literal text.
+
+    Because spaces may be valid text characters, the Reconstructor must not
+    strip trailing spaces from packet strings before parsing.
+
+    Recommended file line cleanup:
+        line = line.rstrip("\r\n")
+
+    Avoid:
+        line = line.strip()
+
+Priority Metadata Handling:
+    [PRIORITY] is not part of the 13-character EMEIMG packet.
+
+    The Reconstructor must ignore [PRIORITY] when rendering.
+
+    Example:
+        0300A0FKE9ETA
+        0300A0FKE9ETA[PRIORITY]
+
+    Both should render the same text element.
+
+Feeder Export Handling:
+    Feeder .emeimgout files may contain packets in this format:
+
+        "PACKET",
+
+    Example:
+        "IC2000014140*",
+
+    The Reconstructor should remove only wrapper characters outside the packet:
+        - leading quote
+        - trailing quote
+        - trailing comma
+
+    The extracted packet must still be exactly 13 characters.
+
+Parsing Behavior:
+    The parser converts a valid 13-character packet into an internal parsed
+    instruction dictionary.
+
+    Each parsed instruction should include at minimum:
+        op      = internal operation name
+        index   = decoded instruction index
+        color   = resolved drawing color
+        raw     = original 13-character packet
+
+    Shape-specific fields are decoded according to the current EMEIMG packet
+    specification.
+
+Invalid Packet Behavior:
+    Invalid packets must not crash the Reconstructor.
+
+    Recommended behavior:
+        1. Print a warning to the terminal.
+        2. Convert the packet into a VOID/no-op instruction.
+        3. Continue processing the remaining packets.
+
+    Example warning:
+        Invalid packet ignored: expected 13 chars, got 11: 0010000H0AF
+
+    VOID packets should not draw anything.
+
+Unknown Shape Behavior:
+    If a packet has valid length but uses an unknown or reserved shape code, the
+    Reconstructor should not crash.
+
+    Recommended behavior:
+        unknown shape -> print warning -> ignore packet
+
+Duplicate Packet Handling:
+    Exact duplicate packets may appear because the Feeder may transmit packets
+    multiple times for redundancy.
+
+    The Reconstructor may remove exact duplicates before rendering.
+
+    Duplicate removal should compare the 13-character packet itself, not any
+    transmission metadata.
+
+    Example:
+        IC2000014140*
+        IC2000014140*
+        IC2000014140*[PRIORITY]
+
+    All represent the same drawing packet after metadata is removed.
+
+Render Order:
+    Packets are rendered by instruction index I, not by receive order or file
+    order.
+
+    Recommended process:
+        1. Load packet lines.
+        2. Remove metadata/wrappers.
+        3. Recover 13-character packets.
+        4. Remove exact duplicates.
+        5. Parse packets.
+        6. Sort parsed packets by instruction index.
+        7. Render sorted packets to the canvas.
+        8. Save the output PNG.
+
+Rendering Behavior:
+    Rendering should be deterministic.
+
+    The same valid packet list should always produce the same output image.
+
+    The Reconstructor should not use random placement, random colors, or random
+    geometry.
+
+    All macro shapes must expand into deterministic vector geometry.
+
+Output:
+    The Reconstructor saves the final reconstructed image as a PNG file.
+
+    Default prototype output filename:
+        output_image.png
+
+    Safe prototype behavior:
+        save PNG -> close image -> print completion message
+
+    Example completion message:
+        Image reconstruction complete.
+
+Console Output:
+    Useful console output includes:
+        - invalid packet warnings
+        - unknown shape warnings
+        - zero-scale shape warnings
+        - zero-radius shape warnings
+        - output file saved message
+
+    Console output is for debugging only.
+
+Recommended Reconstructor Workflow:
+    1. Create a blank 720x480 white image.
+    2. Select/load the .emeimgout or packet input file.
+    3. For each line:
+        - remove newline characters only
+        - remove [PRIORITY] if present
+        - unwrap "PACKET", format if present
+        - ignore station/session/status lines
+        - preserve the 13-character packet exactly
+    4. Remove exact duplicate valid packets.
+    5. Parse each packet.
+    6. Convert malformed packets into VOID/no-op instructions.
+    7. Sort parsed commands by instruction index.
+    8. Render each parsed command.
+    9. Save the reconstructed PNG.
+    10. Print a completion message.
+
+Reconstructor Should Not:
+    - create new image geometry
+    - assign instruction indexes
+    - edit packet layers
+    - schedule transmissions
+    - repeat priority packets
+    - simulate decode loss
+    - insert station ID
+    - insert version headers
+    - transmit through WSJT-X or MAP65
 
 ################################################################################################################################################################
 
-Implementation Notes:
-=====================
+END-TO-END WORKFLOW
+===================
 
-    Invalid packets should not crash the reconstructor.
+1. Build Image in Constructor:
+    The user creates an image layer by layer.
 
-    If a packet is malformed, the parser should report the issue in the
-    terminal and convert the packet into a VOID/no-op instruction.
+    Each layer is encoded as one 13-character packet.
 
-    Recommended invalid-packet behavior:
-        bad packet -> print warning -> return VOID -> continue rendering
+    Important packets may be marked [PRIORITY].
 
+2. Export .emeimg:
+    Constructor saves one packet per line.
+
+    Example:
+        0300A0FKE9ETA[PRIORITY]
+        141000JZDB**
+        2620A0F0F0F1*
+
+3. Load .emeimg in Feeder:
+    Feeder reads the Constructor file, separates priority and non-priority
+    packets, applies redundancy rules, and generates automatic session packets.
+
+4. Simulate / Transmit:
+    Prototype Feeder prints scheduled transmissions to the console.
+
+    Future Feeder versions may interface with WSJT-X, MAP65, or another
+    transmit-control path.
+
+5. Simulate Decode Loss:
+    The Packet No Decode slider randomly marks individual transmission attempts
+    as [DECODED] or [NO DECODE].
+
+6. Export .emeimgout:
+    Feeder exports only successfully decoded image packets.
+
+    Example:
+        "0300A0FKE9ETA",
+        "141000JZDB**",
+        "2620A0F0F0F1*",
+
+7. Load .emeimgout in Reconstructor:
+    Reconstructor extracts valid 13-character packets, removes duplicates,
+    parses packet geometry, sorts by instruction index, and renders the image.
+
+8. Export PNG:
+    Reconstructor saves the final visible image as a PNG.
+
+################################################################################################################################################################
+
+IMPORTANT SEPARATION OF ROLES
+=============================
+
+Constructor:
+    Creates packet lines.
+
+    Assigns instruction indexes.
+
+    Lets the user build and preview the image.
+
+    Optionally appends [PRIORITY] metadata.
+
+    Exports .emeimg files.
+
+Feeder:
+    Reads .emeimg files.
+
+    Schedules transmissions.
+
+    Repeats priority and non-priority packets.
+
+    Inserts station ID and session/version headers.
+
+    Simulates decode failures.
+
+    Exports successfully decoded image packets to .emeimgout.
+
+Reconstructor:
+    Reads packet input, especially .emeimgout files.
+
+    Ignores [PRIORITY] and transmission metadata.
+
+    Removes duplicates.
+
+    Sorts by instruction index.
+
+    Reconstructs the image deterministically.
+
+    Exports PNG.
+
+Rule of Thumb:
+    Constructor decides what the image is.
+
+    Feeder decides how the packets are transmitted.
+
+    Reconstructor decides what was successfully received and what image that
+    data reconstructs.
+
+################################################################################################################################################################
+
+IMPLEMENTATION NOTES
+====================
+
+General Parser Safety:
+    Invalid packets should not crash any program.
+
+    Recommended behavior:
+        bad packet -> print warning -> return/skip VOID -> continue
+
+Line Reading:
     Packet parsing should preserve literal spaces in Shape 0 text packets.
+
     When reading packets from a file, remove newline characters only.
+
+    Recommended:
+        line = line.rstrip("\r\n")
+
+    Avoid:
+        line = line.strip()
+
+Reserved Codes:
+    Reserved colors and shapes should be handled gracefully.
+
+    Recommended behavior:
+        warn -> ignore packet or use a safe fallback -> continue
+
+Zero Scale / Radius:
+    Shape renderers should check for invalid zero or negative scale/radius
+    values.
+
+    Recommended behavior:
+        warn -> skip that shape -> continue
+
+Determinism:
+    Rendering must be deterministic.
+
+    Randomness belongs only in the Feeder's Packet No Decode simulation.
+
+    Constructor preview and Reconstructor output should not depend on random
+    values.
+
+Deduplication:
+    Deduplication should happen after metadata/wrapper removal.
+
+    Compare the exact recovered 13-character packet.
+
+Transmission Metadata:
+    These labels are never part of image packets:
+        [PRIORITY]
+        [DECODED]
+        [NO DECODE]
+        [priority-header]
+        [priority-version-header]
+        [priority-packet]
+        [non-priority-packet]
+
+Automatic Session Text:
+    These are not image drawing packets:
+        [CALLSIGN] EMEIMG
+        EMEIMGV[version][image number]
+        [CALLSIGN] 73
+
+Future Integration:
+    The Feeder's console output is a prototype stand-in.
+
+    Real JT65B operation will require proper timing and a transmit-control path
+    through WSJT-X, MAP65, or another suitable JT65B-capable workflow.
+
+Known Stretch Goals:
+    Crescent Moon rendering for Shape D is a stretch goal.
+
+    Direct WSJT-X / MAP65 control is future integration work.
+
+    More macro shapes may be added later, but only within the available
+    Base-36 shape-code space.
