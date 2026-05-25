@@ -466,6 +466,341 @@ E: DoubleBox
     PP is clamped to the range 0-100 decimal.
 
 
+GUI
+=====================
+
+Constructor Program:
+--------------------
+    The Constructor GUI is a packet-first visual editor for creating EMEIMG
+    instruction files.
+
+    The GUI does not store arbitrary drawing objects as the primary source of
+    truth. Instead, each completed layer is stored as an EMEIMG packet string.
+    The preview canvas is reconstructed by parsing and rendering the same
+    packet strings that will later be saved and transmitted.
+
+    This ensures that any image created in the Constructor is already valid
+    according to the packet reconstruction protocol.
+
+Canvas:
+-------
+    The GUI editing canvas represents the fixed EMEIMG image canvas:
+
+        Width  = 720 pixels
+        Height = 480 pixels
+
+    Only the editable 720x480 region should be shown as the active drawing
+    area. Any surrounding GUI space is not part of the reconstructed image.
+
+Basic Workflow:
+---------------
+    The normal Constructor workflow is:
+
+        1. Select a color.
+        2. Select a shape.
+        3. Click the canvas to define the shape origin.
+        4. If required by the shape, click a second point.
+        5. Adjust shape-specific fields if needed.
+        6. Click "Add Command" to save the packet as a layer.
+
+    Each saved layer corresponds to one packet line.
+
+    The Constructor automatically assigns the packet instruction index I
+    based on the current layer/order position.
+
+    Example:
+        First saved command  -> I = 0
+        Second saved command -> I = 1
+        Third saved command  -> I = 2
+
+    The instruction index ranges from 0 to Z, giving a maximum of 36 ordered
+    packet instructions.
+
+Layer / Packet List:
+--------------------
+    The GUI maintains a list of saved packet commands.
+
+    Each list entry represents one EMEIMG drawing instruction.
+
+    The main preview renders all commands up to the current selected layer.
+    This allows the user to preview the image build-up step by step.
+
+    The final image preview renders all saved commands in instruction order.
+
+    Deleting or reordering layers should renumber packet instruction indexes
+    so that the first command is 0, the second command is 1, and so on.
+
+Command Builder Fields:
+-----------------------
+    The command builder exposes only fields relevant to the currently selected
+    shape.
+
+    Irrelevant fields should be disabled or visually muted so the user does
+    not accidentally edit parameters that are unused by the selected shape.
+
+    Field relevance by shape:
+
+        0: Text
+            Editable fields:
+                Text
+
+        1: Line
+            Editable fields:
+                None
+            Uses:
+                First canvas click  = first endpoint
+                Second canvas click = second endpoint
+
+        2: Rectangle
+            Editable fields:
+                Fill
+
+            Uses:
+                First canvas click  = first corner
+                Second canvas click = opposite corner
+
+        3: Ellipse
+            Editable fields:
+                Radius H / R
+                Radius W / r
+                Scale
+                Fill
+
+            Uses:
+                Canvas click = center point
+
+        4: Triangle Outline
+            Editable fields:
+                Orientation
+                Scale
+
+            Uses:
+                Canvas click = origin point
+
+        5: Triangle Fill
+            Editable fields:
+                Orientation
+                Scale
+
+            Uses:
+                Canvas click = origin point
+
+        6: Arrow
+            Editable fields:
+                Orientation
+                Scale
+
+            Uses:
+                Canvas click = arrow tip / vertex
+
+        7: Star
+            Editable fields:
+                Radius H / R
+                Scale
+
+            Uses:
+                Canvas click = center point
+
+        8: SemiCircle / Arc
+            Editable fields:
+                Radius H / R
+                Scale
+                Start Angle OO
+                Arc Degrees DD
+
+            Uses:
+                Canvas click = center point
+
+        9: Yagi Antenna
+            Editable fields:
+                Orientation
+                Scale
+
+            Uses:
+                Canvas click = macro origin point
+
+        A: Dish Antenna
+            Editable fields:
+                Orientation
+                Scale
+
+            Uses:
+                Canvas click = dish origin point
+
+        B: Radio Transceiver
+            Editable fields:
+                Scale
+
+            Uses:
+                Canvas click = top-left macro origin point
+
+        C: Radio Waves
+            Editable fields:
+                Radius H / R
+                Scale
+                Start Angle OO
+                Arc Degrees DD
+
+            Uses:
+                Canvas click = center point
+
+        D: Moon
+            Editable fields:
+                Scale
+                Crater Color K
+
+            Uses:
+                Canvas click = center point
+
+        E: DoubleBox
+            Editable fields:
+                Divider %
+
+            Uses:
+                First canvas click  = first corner
+                Second canvas click = opposite corner
+
+
+Critical Element / Priority Metadata:
+-------------------------------------
+    The Constructor GUI includes a "Critical Element" checkbox.
+
+    When checked, the saved command line receives a metadata tag appended to
+    the end of the packet line:
+
+        [PRIORITY]
+
+    The priority tag is not part of the 13-character EMEIMG packet.
+
+    The priority tag is transmission metadata used by the later feeder program
+    that reads Constructor output and feeds commands into WSJT-X.
+
+    The purpose of the tag is to identify elements that should receive extra
+    transmission redundancy.
+
+    A priority-tagged command line has this structure:
+
+        <13-character EMEIMG packet>[PRIORITY]
+
+    There is no separator character between the packet and the metadata tag.
+
+    Example using a text packet:
+
+        0300A0FKE9ETA[PRIORITY]
+
+    In that example:
+
+        0       = instruction index
+        3       = color code
+        0       = text shape
+        0A0F    = text origin coordinate
+        KE9ETA  = six-character text payload
+        [PRIORITY] = metadata tag, not packet data
+
+    The Constructor preview and image reconstructor must ignore the priority
+    tag when rendering.
+
+    The packet parser should strip or separate [PRIORITY] before interpreting
+    the 13-character packet.
+
+    The priority flag should be preserved when saving, loading, editing, or
+    renumbering command layers.
+
+Priority Transmission Behavior:
+-------------------------------
+    The [PRIORITY] tag is intended for the transmission feeder program, not
+    the image renderer.
+
+    The feeder program may use [PRIORITY] to send important packets more times
+    than non-priority packets.
+
+    This allows limited JT65B send cycles to be spent more intelligently.
+
+    Important structural or identifying elements can receive additional
+    redundancy, while minor cosmetic elements can be transmitted fewer times.
+
+    Examples of elements that may be marked [PRIORITY]:
+
+        - Callsign text
+        - Main subject outline
+        - Required identifying symbols
+        - Critical geometry needed for image recognition
+        - Important Moon / antenna / radio elements
+        - Any element that would significantly damage the meaning of the image
+          if lost
+
+    Examples of elements that may be left non-priority:
+
+        - Decorative stars
+        - Cosmetic background details
+        - Optional accent lines
+        - Minor visual embellishments
+
+    Priority does not change render order.
+
+    Priority does not change packet geometry.
+
+    Priority does not change the 13-character packet contents.
+
+    Priority only informs the later transmission scheduler that the element
+    should receive additional redundancy.
+
+File Format Notes:
+------------------
+    Constructor output should be saved as one command per line.
+
+    A command line may be either:
+
+        <13-character EMEIMG packet>
+
+    or:
+
+        <13-character EMEIMG packet>[PRIORITY]
+
+    The [PRIORITY] tag must appear after the complete 13-character packet.
+
+    If a packet contains trailing spaces as unused wildcard/padding values,
+    those spaces are still part of the 13-character packet. The [PRIORITY]
+    tag begins after the 13th packet character.
+
+    File readers should remove newline characters only.
+
+    Do not strip trailing packet spaces before packet parsing.
+
+    Recommended loading process:
+
+        1. Read one line.
+        2. Remove newline characters only.
+        3. Check whether the line ends with [PRIORITY].
+        4. If present, remove [PRIORITY] and store priority=True.
+        5. Parse the remaining 13-character packet.
+        6. Render the packet normally.
+        7. Preserve priority metadata for later transmission scheduling.
+
+Rendering Behavior:
+-------------------
+    The GUI preview renderer should ignore [PRIORITY].
+
+    The standalone image reconstructor should also ignore [PRIORITY].
+
+    Rendering should only use the 13-character EMEIMG packet.
+
+    A priority-tagged packet and a non-priority packet with the same first
+    13 characters should render identically.
+
+    Example:
+
+        0300A0FKE9ETA
+        0300A0FKE9ETA[PRIORITY]
+
+    Both render the same text element.
+
+    The only difference is that the second command is marked for additional
+    transmission redundancy by the feeder program.
+
+
+
+
 Implementation Notes:
 =====================
 
