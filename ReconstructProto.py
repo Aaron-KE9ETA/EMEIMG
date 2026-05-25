@@ -64,19 +64,19 @@ def void_packet(packet, reason):
 #intdef manual loading
 def load_commands():
     return [
-        "0030000K0DC00", #Filled Rectangle Black draw 0, black background
-        "14300B9K0DC00",#Filled Rectangle green draw 1 0,405 to across screen for ground
+        "0020000K0DC10", #Filled Rectangle Black draw 0, black background
+        "14200B9K0DC10",#Filled Rectangle green draw 1 0,405 to across screen for ground
         "210I0D0KE9ETA", #Callsign white draw 2
-        "3G93G9LA10000", #Gold star draw 6 55,33 Dec draw 6 124,345
-        "44CF59L010000", #Green Dish antenna scale 1 draw 3 454, 345 dec
-        "5JC3G9L110000", #hot pink dish antenna scal 1 draw 4  125, 290 dec
-        "66F9021320000",#Moon standin 324 73 dec draw 5
-        "7G91J0X520000", #Gold star draw 6 55,33 Dec draw 6
-        "8G9HH0Y520000", #Gold star draw 7 629,35 dec draw 7
-        "9G94F3R520000", #Gold star draw 8 159,135 dec draw 8
-        "A1D0MBF100000", #white radio transciever draw 9 22,411 dec
-        "B1DH3BF100000", #white radio transciever draw A 615,411 dec
-        "C1E3Z99A1002N", #White waves draw B 143,333 dec
+        "3G73G9LA10000", #Gold star draw 6 55,33 Dec draw 6 124,345
+        "44AF59L010000", #Green Dish antenna scale 1 draw 3 454, 345 dec
+        "5JA3G9L110000", #hot pink dish antenna scal 1 draw 4  125, 290 dec
+        "66D9021320000",#Moon 324 73 dec draw 5
+        "7G71J0X520000", #Gold star draw 6 55,33 Dec draw 6
+        "8G7HH0Y520000", #Gold star draw 7 629,35 dec draw 7
+        "9G74F3R520000", #Gold star draw 8 159,135 dec draw 8
+        "A1B0MBF100000", #white radio transciever draw 9 22,411 dec
+        "B1BH3BF100000", #white radio transciever draw A 615,411 dec
+        "C1C3Z99A1002N", #White waves draw B 143,333 dec
     ]
 
 #Parsing commands
@@ -120,53 +120,32 @@ def parse(packet):
 
     if shape == "2":
         return {
-            "op": "RECT_OUTLINE",
+            "op": "RECTANGLE",
             "index": instruction_index,
             "color": color,
             "x1": b36_pair(data[0:2]),
             "y1": b36_pair(data[2:4]),
             "x2": b36_pair(data[4:6]),
             "y2": b36_pair(data[6:8]),
+            "fill": b36(data[8]),
             "raw": packet,
         }
-
+    
     if shape == "3":
         return {
-            "op": "RECT_FILL",
+            "op": "ELLIPSE",
             "index": instruction_index,
             "color": color,
-            "x1": b36_pair(data[0:2]),
-            "y1": b36_pair(data[2:4]),
-            "x2": b36_pair(data[4:6]),
-            "y2": b36_pair(data[6:8]),
+            "x": b36_pair(data[0:2]),
+            "y": b36_pair(data[2:4]),
+            "radius_h": b36(data[4]),   # R = vertical radius
+            "radius_w": b36(data[5]),   # r = horizontal radius
+            "scale": b36(data[6]),
+            "fill": b36(data[7]),
             "raw": packet,
         }
-
+    
     if shape == "4":
-        return {
-            "op": "CIRCLE_OUTLINE",
-            "index": instruction_index,
-            "color": color,
-            "x": b36_pair(data[0:2]),
-            "y": b36_pair(data[2:4]),
-            "r": b36(data[4]),
-            "scale": b36(data[5]),
-            "raw": packet,
-    }
-
-    if shape == "5":
-        return {
-            "op": "CIRCLE_FILL",
-            "index": instruction_index,
-            "color": color,
-            "x": b36_pair(data[0:2]),
-            "y": b36_pair(data[2:4]),
-            "r": b36(data[4]),
-            "scale": b36(data[5]),
-            "raw": packet,
-        }
-
-    if shape == "6":
         return {
             "op": "TRIANGLE_OUTLINE",
             "index": instruction_index,
@@ -182,7 +161,7 @@ def parse(packet):
             "raw": packet,
         }       
 
-    if shape == "7":
+    if shape == "5":
         return {
             "op": "TRIANGLE_FILL",
             "index": instruction_index,
@@ -198,7 +177,7 @@ def parse(packet):
             "raw": packet,
         }
 
-    if shape == "8":
+    if shape == "6":
         return {
             "op": "ARROW",
             "index": instruction_index,
@@ -210,7 +189,7 @@ def parse(packet):
             "raw": packet,
         }
         
-    if shape == "9":
+    if shape == "7":
         return {
             "op": "STAR",
             "index": instruction_index,
@@ -222,7 +201,7 @@ def parse(packet):
             "raw": packet,
         }
     
-    if shape == "A":
+    if shape == "8":
         return {
             "op": "SEMICIRCLE",
             "index": instruction_index,
@@ -236,7 +215,7 @@ def parse(packet):
             "raw": packet,
         }
     
-    if shape == "B":
+    if shape == "9":
         return {
             "op": "YAGI",
             "index": instruction_index,
@@ -248,7 +227,7 @@ def parse(packet):
             "raw": packet,
         }
 
-    if shape == "C":
+    if shape == "A":
         return {
             "op": "DISH",
             "index": instruction_index,
@@ -260,7 +239,7 @@ def parse(packet):
             "raw": packet,
         }
     
-    if shape == "D":
+    if shape == "B":
         return {
             "op": "RADIO_TRANSCEIVER",
             "index": instruction_index,
@@ -271,7 +250,7 @@ def parse(packet):
             "raw": packet,
         }
           
-    if shape == "E":
+    if shape == "C":
         return {
             "op": "RADIO_WAVES",
             "index": instruction_index,
@@ -286,7 +265,7 @@ def parse(packet):
         }
         
         
-    if shape == "F":
+    if shape == "D":
         crater_color_code = data[5]
 
         return {
@@ -301,7 +280,7 @@ def parse(packet):
         }
     
     
-    if shape == "G":
+    if shape == "E":
         return {
             "op": "DOUBLE_BOX",
             "index": instruction_index,
@@ -336,24 +315,11 @@ def render(parsed, draw):
             width=3,
         )
 
-    elif op == "RECT_OUTLINE":
-        draw.rectangle(
-            (parsed["x1"], parsed["y1"], parsed["x2"], parsed["y2"]),
-            outline=parsed["color"],
-            width=3,
-        )
+    elif op == "RECTANGLE":
+        render_rectangle(parsed, draw)
 
-    elif op == "RECT_FILL":
-        draw.rectangle(
-            (parsed["x1"], parsed["y1"], parsed["x2"], parsed["y2"]),
-            fill=parsed["color"],
-        )
-
-    elif op == "CIRCLE_OUTLINE":
-        render_circle(parsed, draw, fill=False)
-
-    elif op == "CIRCLE_FILL":
-        render_circle(parsed, draw, fill=True)
+    elif op == "ELLIPSE":
+        render_ellipse(parsed, draw)
 
     elif op == "TEXT":
         draw.text(
@@ -449,34 +415,76 @@ def draw_arc_line(draw, x, y, radius, start_angle, arc_degrees, color):
         )
 
 #Render macros
-def render_circle(parsed, draw, fill=False):
+def render_rectangle(parsed, draw):
+    x1 = parsed["x1"]
+    y1 = parsed["y1"]
+    x2 = parsed["x2"]
+    y2 = parsed["y2"]
+    fill_flag = parsed["fill"]
+
+    left = min(x1, x2)
+    right = max(x1, x2)
+    top = min(y1, y2)
+    bottom = max(y1, y2)
+
+    if fill_flag == 0:
+        draw.rectangle(
+            (left, top, right, bottom),
+            outline=parsed["color"],
+            width=3,
+        )
+
+    elif fill_flag == 1:
+        draw.rectangle(
+            (left, top, right, bottom),
+            fill=parsed["color"],
+        )
+
+    else:
+        print(f"Warning: rectangle fill flag must be 0 or 1: {parsed['raw']}")
+
+
+def render_ellipse(parsed, draw):
     x = parsed["x"]
     y = parsed["y"]
-    r = parsed["r"]
+    radius_h = parsed["radius_h"]
+    radius_w = parsed["radius_w"]
     scale = parsed["scale"]
+    fill_flag = parsed["fill"]
 
     if scale <= 0:
-        print(f"Warning: zero-scale circle ignored: {parsed['raw']}")
+        print(f"Warning: zero-scale ellipse ignored: {parsed['raw']}")
         return
 
-    if r <= 0:
-        print(f"Warning: zero-radius circle ignored: {parsed['raw']}")
+    if radius_h <= 0 or radius_w <= 0:
+        print(f"Warning: zero-radius ellipse ignored: {parsed['raw']}")
         return
 
-    radius = r * scale
+    rendered_h = radius_h * scale
+    rendered_w = radius_w * scale
 
     box = (
-        x - radius,
-        y - radius,
-        x + radius,
-        y + radius,
+        x - rendered_w,
+        y - rendered_h,
+        x + rendered_w,
+        y + rendered_h,
     )
 
-    if fill:
-        draw.ellipse(box, fill=parsed["color"])
+    if fill_flag == 0:
+        draw.ellipse(
+            box,
+            outline=parsed["color"],
+            width=3,
+        )
+
+    elif fill_flag == 1:
+        draw.ellipse(
+            box,
+            fill=parsed["color"],
+        )
+
     else:
-        draw.ellipse(box, outline=parsed["color"], width=3)
-        
+        print(f"Warning: ellipse fill flag must be 0 or 1: {parsed['raw']}")
 
 def render_triangle(parsed, draw, fill=False):
     x = parsed["x"]
