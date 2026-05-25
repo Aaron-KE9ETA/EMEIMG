@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 EMEIMG GUI Prototype
 --------------------
@@ -398,8 +399,9 @@ def draw_radio(draw, x: int, y: int, orientation: int, scale: int, color: str, c
         )
         draw.rectangle((screen_x1, screen_y1, screen_x2, screen_y2), outline=color, width=width)
 
+
 def draw_arc_line(draw, x: int, y: int, radius: int, start_angle: int, arc_degrees: int, color: str, canvas_kind: str = "tk"):
-    """Draw an arc as a polyline so Tk and PIL behave consistently.
+    """Draw an arc as a polyline so Tk and PIL use the same angle convention.
 
     Angle convention:
         0 degrees   = right
@@ -407,49 +409,42 @@ def draw_arc_line(draw, x: int, y: int, radius: int, start_angle: int, arc_degre
         180 degrees = left
         270 degrees = down
     """
-    if radius <= 0 or arc_degrees <= 0:
+    if radius <= 0:
         return
 
-    points = []
-    end_angle = start_angle + arc_degrees
-    step = 4 if arc_degrees >= 20 else 1
+    start_angle %= 360
+    arc_degrees = max(0, min(360, arc_degrees))
+    if arc_degrees <= 0:
+        return
 
-    for angle in range(start_angle, end_angle + 1, step):
-        theta = math.radians(angle)
-        px = x + round(radius * math.cos(theta))
-        py = y - round(radius * math.sin(theta))
-        points.append((px, py))
+    arc_points = []
+    for angle in range(start_angle, start_angle + arc_degrees + 1, 5):
+        theta = math.radians(angle % 360)
+        px = round(x + radius * math.cos(theta))
+        py = round(y - radius * math.sin(theta))
+        arc_points.append((px, py))
 
-    # Ensure exact endpoint is included
-    theta = math.radians(end_angle)
-    px = x + round(radius * math.cos(theta))
-    py = y - round(radius * math.sin(theta))
-    if not points or points[-1] != (px, py):
-        points.append((px, py))
-
-    if len(points) < 2:
+    if len(arc_points) < 2:
         return
 
     if canvas_kind == "tk":
-        for p1, p2 in zip(points, points[1:]):
+        for p1, p2 in zip(arc_points, arc_points[1:]):
             draw.create_line(*p1, *p2, fill=color, width=3)
     else:
-        draw.line(points, fill=color, width=3)
-        
+        draw.line(arc_points, fill=color, width=3)
+
+
+def draw_semicircle(draw, x: int, y: int, radius: int, scale: int, start_angle: int, arc_degrees: int, color: str, canvas_kind: str = "tk"):
+    """Draw Shape 8 SemiCircle / Arc: [I][C]8XXYYRSOODD."""
+    if scale <= 0 or radius <= 0:
+        return
+    rendered_radius = radius * scale
+    draw_arc_line(draw, x, y, rendered_radius, start_angle, arc_degrees, color, canvas_kind)
+
 
 def draw_radio_waves(draw, x: int, y: int, radius: int, scale: int, start_angle: int, arc_degrees: int, color: str, canvas_kind: str = "tk"):
-    """Draw 3 concentric radio-wave arcs.
-
-    Packet meaning:
-        R  = radius of first wave
-        S  = scale factor
-        OO = start angle in degrees
-        DD = angular distance in degrees
-    """
-    if scale <= 0:
-        return
-
-    if radius <= 0:
+    """Draw Shape C Radio Waves: [I][C]CXXYYRSOODD."""
+    if scale <= 0 or radius <= 0:
         return
 
     arc_degrees = max(0, min(360, arc_degrees))
@@ -457,17 +452,12 @@ def draw_radio_waves(draw, x: int, y: int, radius: int, scale: int, start_angle:
         return
 
     start_angle %= 360
-
     base_radius = radius * scale
     spacing = 2 * radius * scale
 
-    radius1 = base_radius
-    radius2 = base_radius + spacing
-    radius3 = base_radius + (2 * spacing)
-
-    draw_arc_line(draw, x, y, radius1, start_angle, arc_degrees, color, canvas_kind)
-    draw_arc_line(draw, x, y, radius2, start_angle, arc_degrees, color, canvas_kind)
-    draw_arc_line(draw, x, y, radius3, start_angle, arc_degrees, color, canvas_kind)
+    draw_arc_line(draw, x, y, base_radius, start_angle, arc_degrees, color, canvas_kind)
+    draw_arc_line(draw, x, y, base_radius + spacing, start_angle, arc_degrees, color, canvas_kind)
+    draw_arc_line(draw, x, y, base_radius + (2 * spacing), start_angle, arc_degrees, color, canvas_kind)
 
 
 def draw_moon(draw, x: int, y: int, scale: int, moon_color: str, crater_color: str, canvas_kind: str = "tk"):
@@ -647,17 +637,13 @@ def render_packet(packet: str, target, canvas_kind: str = "tk"):
         draw_star(target, x, y, radius, scale, color, canvas_kind)
 
     elif shape == "8":
-        # [I][C]8XXYYROSF[space]
+        # [I][C]8XXYYRSOODD
         x, y = decode_xy(packet[3:7])
         radius = max(1, from_b36_1(packet[7]))
-        orientation = from_b36_1(packet[8]) % 4
-        scale = max(1, from_b36_1(packet[9]))
-        r = radius * scale
-        start = orientation * 90
-        if canvas_kind == "tk":
-            target.create_arc(x - r, y - r, x + r, y + r, start=start, extent=180, outline=color, width=2)
-        else:
-            target.arc([x - r, y - r, x + r, y + r], start, start + 180, fill=color, width=2)
+        scale = max(1, from_b36_1(packet[8]))
+        start_angle = from_b36_2(packet[9:11])
+        arc_degrees = from_b36_2(packet[11:13])
+        draw_semicircle(target, x, y, radius, scale, start_angle, arc_degrees, color, canvas_kind)
 
     elif shape == "9":
         # [I][C]9XXYYOS[spaces]
@@ -687,8 +673,8 @@ def render_packet(packet: str, target, canvas_kind: str = "tk"):
         scale = max(1, from_b36_1(packet[8]))
         start_angle = from_b36_2(packet[9:11])
         arc_degrees = from_b36_2(packet[11:13])
-
         draw_radio_waves(target, x, y, radius, scale, start_angle, arc_degrees, color, canvas_kind)
+
     elif shape == "D":
         # [I][C]DXXYYSK[spaces]
         x, y = decode_xy(packet[3:7])
@@ -729,12 +715,12 @@ class EMEIMGEditor(tk.Tk):
         self.var_scale = tk.IntVar(value=DEFAULT_SCALE)
         self.var_radius_h = tk.IntVar(value=DEFAULT_RADIUS)
         self.var_radius_w = tk.IntVar(value=DEFAULT_RADIUS)
+        self.var_start_angle = tk.IntVar(value=0)
+        self.var_arc_degrees = tk.IntVar(value=180)
         self.var_fill = tk.IntVar(value=0)
         self.var_percent = tk.IntVar(value=50)
         self.var_crater_color = tk.StringVar(value="2")
         self.var_status = tk.StringVar(value="Select color + shape, then click the canvas.")
-        self.var_start_angle = tk.IntVar(value=0)   
-        self.var_arc_degrees = tk.IntVar(value=90)
 
         self._build_ui()
         self._refresh_controls_from_shape()
@@ -825,42 +811,43 @@ class EMEIMGEditor(tk.Tk):
         controls.grid(row=3, column=0, sticky="ew", pady=(8, 0))
         controls.columnconfigure(1, weight=1)
 
+        self.control_fields = {}
+
+        def add_entry(key: str, label_text: str, variable: tk.Variable, width: int = 12, sticky: str = "w"):
+            nonlocal row
+            label = ttk.Label(controls, text=label_text)
+            label.grid(row=row, column=0, sticky="w")
+            widget = ttk.Entry(controls, textvariable=variable, width=width)
+            widget.grid(row=row, column=1, sticky=sticky)
+            self.control_fields[key] = (label, widget)
+            row += 1
+            return widget
+
+        def add_spin(key: str, label_text: str, variable: tk.Variable, from_: int, to_: int):
+            nonlocal row
+            label = ttk.Label(controls, text=label_text)
+            label.grid(row=row, column=0, sticky="w")
+            widget = ttk.Spinbox(controls, textvariable=variable, from_=from_, to=to_, width=6)
+            widget.grid(row=row, column=1, sticky="w")
+            self.control_fields[key] = (label, widget)
+            row += 1
+            return widget
+
         row = 0
         self.lbl_selected = ttk.Label(controls, text="")
         self.lbl_selected.grid(row=row, column=0, columnspan=2, sticky="w")
         row += 1
 
-        ttk.Label(controls, text="Text").grid(row=row, column=0, sticky="w")
-        ttk.Entry(controls, textvariable=self.var_text, width=12).grid(row=row, column=1, sticky="ew")
-        row += 1
-
-        ttk.Label(controls, text="Orientation 0-3").grid(row=row, column=0, sticky="w")
-        ttk.Spinbox(controls, textvariable=self.var_orientation, from_=0, to=3, width=6).grid(row=row, column=1, sticky="w")
-        row += 1
-
-        ttk.Label(controls, text="Scale").grid(row=row, column=0, sticky="w")
-        ttk.Spinbox(controls, textvariable=self.var_scale, from_=1, to=35, width=6).grid(row=row, column=1, sticky="w")
-        row += 1
-
-        ttk.Label(controls, text="Radius H / R").grid(row=row, column=0, sticky="w")
-        ttk.Spinbox(controls, textvariable=self.var_radius_h, from_=1, to=35, width=6).grid(row=row, column=1, sticky="w")
-        row += 1
-
-        ttk.Label(controls, text="Radius W / r").grid(row=row, column=0, sticky="w")
-        ttk.Spinbox(controls, textvariable=self.var_radius_w, from_=1, to=35, width=6).grid(row=row, column=1, sticky="w")
-        row += 1
-
-        ttk.Label(controls, text="Fill 0/1").grid(row=row, column=0, sticky="w")
-        ttk.Spinbox(controls, textvariable=self.var_fill, from_=0, to=1, width=6).grid(row=row, column=1, sticky="w")
-        row += 1
-
-        ttk.Label(controls, text="Crater Color").grid(row=row, column=0, sticky="w")
-        ttk.Entry(controls, textvariable=self.var_crater_color, width=6).grid(row=row, column=1, sticky="w")
-        row += 1
-
-        ttk.Label(controls, text="Divider %").grid(row=row, column=0, sticky="w")
-        ttk.Spinbox(controls, textvariable=self.var_percent, from_=0, to=100, width=6).grid(row=row, column=1, sticky="w")
-        row += 1
+        add_entry("text", "Text", self.var_text, width=12, sticky="ew")
+        add_spin("orientation", "Orientation 0-3", self.var_orientation, 0, 3)
+        add_spin("scale", "Scale", self.var_scale, 1, 35)
+        add_spin("radius_h", "Radius H / R", self.var_radius_h, 1, 35)
+        add_spin("radius_w", "Radius W / r", self.var_radius_w, 1, 35)
+        add_spin("start_angle", "Start Angle OO", self.var_start_angle, 0, 360)
+        add_spin("arc_degrees", "Arc Degrees DD", self.var_arc_degrees, 0, 360)
+        add_spin("fill", "Fill 0/1", self.var_fill, 0, 1)
+        add_entry("crater_color", "Crater Color K", self.var_crater_color, width=6)
+        add_spin("divider_percent", "Divider %", self.var_percent, 0, 100)
 
         ttk.Label(controls, text="Packet").grid(row=row, column=0, sticky="w")
         ttk.Entry(controls, textvariable=self.var_packet, width=22).grid(row=row, column=1, sticky="ew")
@@ -901,18 +888,52 @@ class EMEIMGEditor(tk.Tk):
     def _refresh_controls_from_shape(self):
         if self.selected_shape.default_fill is not None:
             self.var_fill.set(self.selected_shape.default_fill)
+        self._update_field_states()
         self._update_selected_label()
+
+    def _relevant_fields_for_shape(self, shape_code: str) -> set[str]:
+        # Raw packet text remains editable for every shape. This mapping only
+        # controls the structured helper fields in the command builder.
+        return {
+            "0": {"text"},
+            "1": set(),
+            "2": {"fill"},
+            "3": {"radius_h", "radius_w", "scale", "fill"},
+            "4": {"orientation", "scale"},
+            "5": {"orientation", "scale"},
+            "6": {"orientation", "scale"},
+            "7": {"radius_h", "scale"},
+            "8": {"radius_h", "scale", "start_angle", "arc_degrees"},
+            "9": {"orientation", "scale"},
+            "A": {"orientation", "scale"},
+            "B": {"scale"},
+            "C": {"radius_h", "scale", "start_angle", "arc_degrees"},
+            "D": {"scale", "crater_color"},
+            "E": {"divider_percent"},
+        }.get(shape_code, set())
+
+    def _update_field_states(self):
+        relevant = self._relevant_fields_for_shape(self.selected_shape.code)
+        for key, (label, widget) in getattr(self, "control_fields", {}).items():
+            enabled = key in relevant
+            state = "normal" if enabled else "disabled"
+            widget.configure(state=state)
+            try:
+                label.configure(foreground="" if enabled else "#888888")
+            except tk.TclError:
+                pass
 
     def _update_selected_label(self):
         color_name = COLOR_TABLE[self.selected_color][0]
         crater_code = self._get_crater_color_code()
         crater_name = COLOR_TABLE[crater_code][0]
         next_order = to_b36_1(len(self.commands)) if len(self.commands) < MAX_COMMANDS else "!"
+        active = ", ".join(sorted(self._relevant_fields_for_shape(self.selected_shape.code))) or "canvas clicks only"
         self.lbl_selected.configure(
             text=(
                 f"Next I={next_order} | C={self.selected_color} {color_name} | "
                 f"S={self.selected_shape.code} {self.selected_shape.name} | "
-                f"Moon K={crater_code} {crater_name}"
+                f"Moon K={crater_code} {crater_name} | Active: {active}"
             )
         )
 
@@ -1002,20 +1023,22 @@ class EMEIMGEditor(tk.Tk):
         if shape in {"4", "5", "6", "9", "A", "B"}:
             # [I][C]SXXYYOS[spaces]
             return pad_packet(f"{prefix}{xy1}{to_b36_1(orientation)}{to_b36_1(scale)}")
-        if shape == "C":
-            # [I][C]CXXYYRSOODD
-            start_angle = clamp(self.var_start_angle.get(), 0, 360)
-            arc_degrees = clamp(self.var_arc_degrees.get(), 0, 360)
-            return f"{prefix}{xy1}{to_b36_1(radius_h)}{to_b36_1(scale)}{to_b36_2(start_angle)}{to_b36_2(arc_degrees)}"
+
         if shape == "7":
             # [I][C]7XXYYRS[spaces]
             return pad_packet(f"{prefix}{xy1}{to_b36_1(radius_h)}{to_b36_1(scale)}")
 
         if shape == "8":
-            # [I][C]8XXYYROSF[space]
-            return pad_packet(
-                f"{prefix}{xy1}{to_b36_1(radius_h)}{to_b36_1(orientation)}{to_b36_1(scale)}{fill}"
-            )
+            # [I][C]8XXYYRSOODD
+            start_angle = clamp(self.var_start_angle.get(), 0, 360)
+            arc_degrees = clamp(self.var_arc_degrees.get(), 0, 360)
+            return f"{prefix}{xy1}{to_b36_1(radius_h)}{to_b36_1(scale)}{to_b36_2(start_angle)}{to_b36_2(arc_degrees)}"
+
+        if shape == "C":
+            # [I][C]CXXYYRSOODD
+            start_angle = clamp(self.var_start_angle.get(), 0, 360)
+            arc_degrees = clamp(self.var_arc_degrees.get(), 0, 360)
+            return f"{prefix}{xy1}{to_b36_1(radius_h)}{to_b36_1(scale)}{to_b36_2(start_angle)}{to_b36_2(arc_degrees)}"
 
         if shape == "D":
             # [I][C]DXXYYSK[spaces]
@@ -1152,65 +1175,6 @@ class EMEIMGEditor(tk.Tk):
             for packet in self.commands:
                 f.write(packet + "\n")
         self._set_status(f"Saved {len(self.commands)} commands to {path}")
-
-    def _load_commands(self):
-        path = filedialog.askopenfilename(
-            filetypes=[("EMEIMG command files", "*.emeimg"), ("Text files", "*.txt"), ("All files", "*.*")],
-        )
-        if not path:
-            return
-
-        loaded: List[str] = []
-        with open(path, "r", encoding="utf-8") as f:
-            for raw in f:
-                line = raw.rstrip("\n")
-                if not line.strip() or line.strip().upper() == "EMEIMGV1" or line.lstrip().startswith("#"):
-                    continue
-                if len(loaded) >= MAX_COMMANDS:
-                    messagebox.showwarning("Command limit", "Only the first 36 commands were loaded.")
-                    break
-                packet = pad_packet(line)
-                try:
-                    validate_packet(packet)
-                    loaded.append(packet)
-                except PacketError as e:
-                    messagebox.showwarning("Skipped invalid line", f"{line!r}\n\n{e}")
-
-        self.commands = loaded
-        self._renumber_commands()
-        self.selected_layer_index = None
-        self._refresh_layer_list()
-        self._update_selected_label()
-        self._render_all()
-        self._set_status(f"Loaded {len(loaded)} commands from {path} and normalized order indexes.")
-
-    def _export_png(self):
-        if Image is None or ImageDraw is None:
-            messagebox.showerror("Pillow missing", "Install Pillow first: pip install pillow")
-            return
-
-        path = filedialog.asksaveasfilename(
-            defaultextension=".png",
-            filetypes=[("PNG image", "*.png"), ("All files", "*.*")],
-        )
-        if not path:
-            return
-
-        img = Image.new("RGB", (CANVAS_W, CANVAS_H), "white")
-        draw = ImageDraw.Draw(img)
-        for i, packet in enumerate(self.commands):
-            try:
-                render_packet(packet, draw, "pil")
-            except Exception as e:
-                messagebox.showerror("Export error", f"Layer {i}: {e}")
-                return
-        img.save(path)
-        self._set_status(f"Exported PNG: {path}")
-
-
-if __name__ == "__main__":
-    app = EMEIMGEditor()
-    app.mainloop()
 
     def _load_commands(self):
         path = filedialog.askopenfilename(
