@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-#!/usr/bin/env python3
 """
 EMEIMG GUI Prototype
 --------------------
@@ -52,6 +51,7 @@ PACKET_LEN = 13
 DEFAULT_RADIUS = 35
 DEFAULT_SCALE = 1
 MAX_COMMANDS = 36
+PRIORITY_TAG = "[PRIORITY]"
 
 
 # Final color dictionary from the project notes.
@@ -192,12 +192,32 @@ def pad_packet(s: str) -> str:
     return s.ljust(PACKET_LEN, " ")
 
 
+def split_priority_tag(command: str) -> Tuple[str, bool]:
+    """Return the 13-character packet text and whether it has PRIORITY_TAG.
+
+    [PRIORITY] is protocol metadata, not part of the 13-character packet.
+    """
+    command = command.rstrip()
+    if command.upper().endswith(PRIORITY_TAG):
+        return command[: -len(PRIORITY_TAG)].rstrip(), True
+    return command, False
+
+
+def apply_priority_tag(packet: str, is_priority: bool) -> str:
+    """Attach or remove the priority metadata tag without changing the packet."""
+    packet, _ = split_priority_tag(packet)
+    packet = pad_packet(packet)
+    return f"{packet}{PRIORITY_TAG}" if is_priority else packet
+
+
 def normalize_packet_order(packet: str, index: int) -> str:
-    """Force packet[0] to match its layer/order index."""
+    """Force packet[0] to match its layer/order index and preserve priority metadata."""
     if not 0 <= index < MAX_COMMANDS:
         raise PacketError("EMEIMG supports only 36 command order indexes, 0-Z.")
+    packet, is_priority = split_priority_tag(packet)
     packet = pad_packet(packet)
-    return to_b36_1(index) + packet[1:]
+    packet = to_b36_1(index) + packet[1:]
+    return apply_priority_tag(packet, is_priority)
 
 
 def rotate_point(px: float, py: float, ox: float, oy: float, turns: int) -> Tuple[float, float]:
@@ -544,6 +564,7 @@ def draw_double_box(draw, x1: int, y1: int, x2: int, y2: int, percent: int, colo
 
 
 def validate_packet(packet: str):
+    packet, _is_priority = split_priority_tag(packet)
     packet = pad_packet(packet)
     if len(packet) != PACKET_LEN:
         raise PacketError(f"Packet must be {PACKET_LEN} characters.")
@@ -559,7 +580,9 @@ def render_packet(packet: str, target, canvas_kind: str = "tk"):
     """Render one 13-character packet onto a Tk Canvas or PIL ImageDraw.
 
     Layout is [I][C][S][payload...]. The order index is ignored by the renderer.
+    Any trailing [PRIORITY] tag is metadata and is ignored by the renderer.
     """
+    packet, _is_priority = split_priority_tag(packet)
     packet = pad_packet(packet)
     validate_packet(packet)
 
@@ -720,6 +743,7 @@ class EMEIMGEditor(tk.Tk):
         self.var_fill = tk.IntVar(value=0)
         self.var_percent = tk.IntVar(value=50)
         self.var_crater_color = tk.StringVar(value="2")
+        self.var_critical_element = tk.BooleanVar(value=False)
         self.var_status = tk.StringVar(value="Select color + shape, then click the canvas.")
 
         self._build_ui()
@@ -849,6 +873,15 @@ class EMEIMGEditor(tk.Tk):
         add_entry("crater_color", "Crater Color K", self.var_crater_color, width=6)
         add_spin("divider_percent", "Divider %", self.var_percent, 0, 100)
 
+        self.chk_critical = ttk.Checkbutton(
+            controls,
+            text="Critical Element / Priority",
+            variable=self.var_critical_element,
+            command=self._update_packet_priority_from_checkbox,
+        )
+        self.chk_critical.grid(row=row, column=0, columnspan=2, sticky="w", pady=(4, 2))
+        row += 1
+
         ttk.Label(controls, text="Packet").grid(row=row, column=0, sticky="w")
         ttk.Entry(controls, textvariable=self.var_packet, width=22).grid(row=row, column=1, sticky="ew")
         row += 1
@@ -873,6 +906,15 @@ class EMEIMGEditor(tk.Tk):
         if code not in COLOR_TABLE:
             return "2"
         return code
+
+    def _packet_with_current_priority(self, packet: str) -> str:
+        return apply_priority_tag(packet, self.var_critical_element.get())
+
+    def _update_packet_priority_from_checkbox(self):
+        raw = self.var_packet.get()
+        if raw.strip():
+            self.var_packet.set(self._packet_with_current_priority(raw))
+        self._update_selected_label()
 
     def _select_color(self, code: str):
         self.selected_color = code
@@ -929,11 +971,12 @@ class EMEIMGEditor(tk.Tk):
         crater_name = COLOR_TABLE[crater_code][0]
         next_order = to_b36_1(len(self.commands)) if len(self.commands) < MAX_COMMANDS else "!"
         active = ", ".join(sorted(self._relevant_fields_for_shape(self.selected_shape.code))) or "canvas clicks only"
+        priority_text = " | PRIORITY" if self.var_critical_element.get() else ""
         self.lbl_selected.configure(
             text=(
                 f"Next I={next_order} | C={self.selected_color} {color_name} | "
                 f"S={self.selected_shape.code} {self.selected_shape.name} | "
-                f"Moon K={crater_code} {crater_name} | Active: {active}"
+                f"Moon K={crater_code} {crater_name} | Active: {active}{priority_text}"
             )
         )
 
@@ -974,6 +1017,7 @@ class EMEIMGEditor(tk.Tk):
         else:
             packet = self._build_packet(x, y, index=len(self.commands))
 
+        packet = self._packet_with_current_priority(packet)
         self.var_packet.set(packet)
         self._set_status(f"Built packet: {packet!r}. Click Add Command to save as a layer.")
         self._render_preview_packet(packet)
@@ -1064,7 +1108,7 @@ class EMEIMGEditor(tk.Tk):
             messagebox.showerror("Invalid packet", "No packet has been built yet.")
             return
 
-        packet = pad_packet(raw)
+        packet = apply_priority_tag(raw, self.var_critical_element.get())
         packet = normalize_packet_order(packet, len(self.commands))
 
         try:
@@ -1083,7 +1127,10 @@ class EMEIMGEditor(tk.Tk):
     def _refresh_layer_list(self):
         self.layer_list.delete(0, tk.END)
         for i, packet in enumerate(self.commands):
-            display_packet = packet.replace(" ", "·")
+            base_packet, is_priority = split_priority_tag(packet)
+            display_packet = pad_packet(base_packet).replace(" ", "·")
+            if is_priority:
+                display_packet += f" {PRIORITY_TAG}"
             self.layer_list.insert(tk.END, f"{i:02d}: {display_packet}")
 
     def _on_layer_select(self, _event=None):
@@ -1091,6 +1138,9 @@ class EMEIMGEditor(tk.Tk):
         self.selected_layer_index = sel[0] if sel else None
         if self.selected_layer_index is not None:
             self.var_packet.set(self.commands[self.selected_layer_index])
+            _packet, is_priority = split_priority_tag(self.commands[self.selected_layer_index])
+            self.var_critical_element.set(is_priority)
+            self._update_selected_label()
             self._render_all(upto=self.selected_layer_index)
             self._set_status(f"Previewing layers 0 through {self.selected_layer_index}.")
 
@@ -1100,6 +1150,9 @@ class EMEIMGEditor(tk.Tk):
             messagebox.showinfo("No layer selected", "Select a layer first.")
             return
         self.var_packet.set(self.commands[idx])
+        _packet, is_priority = split_priority_tag(self.commands[idx])
+        self.var_critical_element.set(is_priority)
+        self._update_selected_label()
         self._set_status(f"Loaded layer {idx} into packet box. Edit text, then Replace.")
 
     def _replace_selected_layer(self):
@@ -1108,7 +1161,7 @@ class EMEIMGEditor(tk.Tk):
             messagebox.showinfo("No layer selected", "Select a layer first.")
             return
 
-        packet = pad_packet(self.var_packet.get())
+        packet = apply_priority_tag(self.var_packet.get(), self.var_critical_element.get())
         packet = normalize_packet_order(packet, idx)
         try:
             validate_packet(packet)
@@ -1192,7 +1245,9 @@ class EMEIMGEditor(tk.Tk):
                 if len(loaded) >= MAX_COMMANDS:
                     messagebox.showwarning("Command limit", "Only the first 36 commands were loaded.")
                     break
-                packet = pad_packet(line)
+                packet = line.rstrip()
+                base_packet, is_priority = split_priority_tag(packet)
+                packet = apply_priority_tag(base_packet, is_priority)
                 try:
                     validate_packet(packet)
                     loaded.append(packet)
