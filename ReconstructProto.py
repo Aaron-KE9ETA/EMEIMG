@@ -7,12 +7,14 @@ import math
 import os
 from tkinter import Tk, filedialog
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 CANVAS_SIZE = (720, 480)
 BACKGROUND = "white"
 LINE_WIDTH = 3
 PRIORITY_TAG = "[PRIORITY]"
+
+TEXT_FONT_SIZE = 14
 
 PALETTE = {
     "0": "black",
@@ -81,6 +83,15 @@ MOON_CRATER_POINTS = {
     (3 / 4, 3 / 5, 3)
 }
 
+def load_text_font():
+    try:
+        return ImageFont.truetype("DejaVuSans-Bold.ttf", TEXT_FONT_SIZE)
+    except OSError:
+        print("Warning: DejaVuSans-Bold.ttf not found, using default PIL font.")
+        return ImageFont.load_default()
+
+
+TEXT_FONT = load_text_font()
 
 def b36(value):
     return int(value.upper(), 36)
@@ -414,6 +425,8 @@ def render_text(parsed, draw):
         (parsed["x"], parsed["y"]),
         parsed["text"],
         fill=parsed["color"],
+        font=TEXT_FONT,
+        anchor="lt",
     )
 
 
