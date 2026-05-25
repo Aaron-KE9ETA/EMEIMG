@@ -888,30 +888,27 @@ def render_moon(parsed, draw):
             width=LINE_WIDTH,
         )
 
-
 def render_double_box(parsed, draw):
-    left = min(parsed["x1"], parsed["x2"])
-    right = max(parsed["x1"], parsed["x2"])
-    top = min(parsed["y1"], parsed["y2"])
-    bottom = max(parsed["y1"], parsed["y2"])
+    x1 = parsed["x1"]
+    y1 = parsed["y1"]
+    x2 = parsed["x2"]
+    y2 = parsed["y2"]
 
     percent = max(0, min(100, parsed["percent"]))
 
-    height = bottom - top
-    split_y = top + round(height * (percent / 100))
+    divider_y = y1 + round((y2 - y1) * percent / 100)
 
     draw.rectangle(
-        (left, top, right, bottom),
+        (x1, y1, x2, y2),
         outline=parsed["color"],
         width=LINE_WIDTH,
     )
 
     draw.line(
-        (left, split_y, right, split_y),
+        (x1, divider_y, x2, divider_y),
         fill=parsed["color"],
         width=LINE_WIDTH,
     )
-
 
 def render(parsed, draw):
     op = parsed["op"]
