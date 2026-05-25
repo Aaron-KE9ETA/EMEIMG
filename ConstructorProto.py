@@ -1244,7 +1244,6 @@ class EMEIMGEditor(tk.Tk):
             return
 
         with open(path, "w", encoding="utf-8") as f:
-            f.write("EMEIMGv1\n")
             for packet in self.commands:
                 f.write(packet + "\n")
         self._set_status(f"Saved {len(self.commands)} commands to {path}")
