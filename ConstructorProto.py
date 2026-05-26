@@ -265,16 +265,21 @@ def draw_arrow(draw, x: int, y: int, orientation: int, scale: int, fill: str, ca
 
 def draw_star(draw, x: int, y: int, radius: int, scale: int, color: str, canvas_kind: str = "tk"):
     # Shape 7: four-line star centered at XXYY.
-    # Rendered radius = R * S. Full line length is approximately 2 * R * S.
-    r = max(1, radius) * max(1, scale)
+    # Rendered radius = R * S. Each line's full length is approximately 2 * R * S.
+    if scale <= 0 or radius <= 0:
+        return
+
+    r = radius * scale
+    diag = round(r / math.sqrt(2))
+
     lines = [
-        ((x, y - r), (x, y + r)),                  # vertical
-        ((x - r, y), (x + r, y)),                  # horizontal
-        ((x - r, y - r), (x + r, y + r)),          # NW/SE
-        ((x + r, y - r), (x - r, y + r)),          # NE/SW
+        ((x, y - r), (x, y + r)),                          # vertical
+        ((x - r, y), (x + r, y)),                          # horizontal
+        ((x - diag, y - diag), (x + diag, y + diag)),      # NW/SE
+        ((x + diag, y - diag), (x - diag, y + diag)),      # NE/SW
     ]
     for p1, p2 in lines:
-        draw_line(draw, p1, p2, color, width=2, canvas_kind=canvas_kind)
+        draw_line(draw, p1, p2, color, width=3, canvas_kind=canvas_kind)
 
 
 def draw_yagi(draw, x: int, y: int, orientation: int, scale: int, color: str, canvas_kind: str = "tk"):
@@ -553,14 +558,23 @@ def draw_moon(draw, x: int, y: int, scale: int, moon_color: str, crater_color: s
 
 
 def draw_double_box(draw, x1: int, y1: int, x2: int, y2: int, percent: int, color: str, canvas_kind: str = "tk"):
+    # Normalize opposite corners before drawing. Tk tolerates reversed rectangle
+    # coordinates, but PIL requires x1 <= x2 and y1 <= y2. Percent is always
+    # measured from the normalized top edge downward.
+    left = min(x1, x2)
+    right = max(x1, x2)
+    top = min(y1, y2)
+    bottom = max(y1, y2)
+
     p = clamp(percent, 0, 100)
-    divider_y = y1 + round((y2 - y1) * p / 100)
+    divider_y = top + round((bottom - top) * p / 100)
+
     if canvas_kind == "tk":
-        draw.create_rectangle(x1, y1, x2, y2, outline=color, width=2)
-        draw.create_line(x1, divider_y, x2, divider_y, fill=color, width=2)
+        draw.create_rectangle(left, top, right, bottom, outline=color, width=2)
+        draw.create_line(left, divider_y, right, divider_y, fill=color, width=2)
     else:
-        draw.rectangle([x1, y1, x2, y2], outline=color, width=2)
-        draw.line([(x1, divider_y), (x2, divider_y)], fill=color, width=2)
+        draw.rectangle([left, top, right, bottom], outline=color, width=2)
+        draw.line([(left, divider_y), (right, divider_y)], fill=color, width=2)
 
 
 def validate_packet(packet: str):
@@ -709,10 +723,11 @@ def render_packet(packet: str, target, canvas_kind: str = "tk"):
         draw_moon(target, x, y, scale, color, crater_color, canvas_kind)
 
     elif shape == "E":
-        # [I][C]EXXYYxxyyP[space]
+        # [I][C]EXXYYxxyyPP
+        # PP is a two-character base-36 integer percentage, clamped 0-100.
         x1, y1 = decode_xy(packet[3:7])
         x2, y2 = decode_xy(packet[7:11])
-        percent = round(from_b36_1(packet[11]) / 35 * 100)
+        percent = clamp(from_b36_2(packet[11:13]), 0, 100)
         draw_double_box(target, x1, y1, x2, y2, percent, color, canvas_kind)
 
     else:
@@ -1110,11 +1125,17 @@ class EMEIMGEditor(tk.Tk):
             return pad_packet(f"{prefix}{xy1}{to_b36_1(scale)}{crater_color}")
 
         if shape == "E":
-            # [I][C]EXXYYxxyyP[space], P maps 0-Z to 0-100%.
+            # [I][C]EXXYYxxyyPP
+            # PP is the actual decimal percentage encoded as two-character base-36.
+            # Example: 50 decimal -> 1E base-36.
             if x2 is None or y2 is None:
                 raise PacketError("DoubleBox requires a second point.")
-            pchar = to_b36_1(round(percent / 100 * 35))
-            return pad_packet(f"{prefix}{xy1}{encode_xy(x2, y2)}{pchar}")
+            left = min(x1, x2)
+            right = max(x1, x2)
+            top = min(y1, y2)
+            bottom = max(y1, y2)
+            pp = to_b36_2(percent)
+            return f"{prefix}{encode_xy(left, top)}{encode_xy(right, bottom)}{pp}"
 
         raise PacketError(f"Unsupported shape: {shape}")
 
