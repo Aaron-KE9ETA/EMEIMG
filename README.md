@@ -11,6 +11,6 @@ EMEIMG Prototype
 
 Experimental proof-of-concept software for reconstructing simple vector images from 13-character JT65B-compatible instruction packets.
 
-Current status: Beginning Pre-Alpha Developments
+Current status: Beginning Pre-Alpha Development
 
 The protocol is unstable and packet formats may change as the renderer develops.
