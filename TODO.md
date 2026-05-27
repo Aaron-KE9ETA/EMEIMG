@@ -45,6 +45,14 @@ Create or integrate software for receiving decoded JT65B text from WSJT-X and sa
 
 The reader should listen for EMEIMG headers, packets, station ID traffic, and footers where applicable, then write the received packet stream into an `.emeimgout` file suitable for the reconstructor.
 
+### 5. Round-robin packet transmission
+
+Distribute packet transmissions using a round-robin ordering strategy rather than sending repeated copies of each command back-to-back.
+
+This should improve resilience during multi-minute decode outages by spreading repeated packets across the full transmission sequence. If several consecutive transmissions are lost, the receiver is less likely to lose every copy of the same command.
+
+The goal is to increase the chance of receiving a meaningful partial image, while also improving the likelihood that critical drawing instructions survive intermittent reception loss.
+
 ## Future TODO
 
 ### More advanced shapes
