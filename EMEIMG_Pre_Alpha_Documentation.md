@@ -10,7 +10,7 @@ The design goal is not full raster-image transfer. The design goal is to send a 
 
 EMEIMG is intended to remain openly documented, non-encrypted, and auditable. The packet format, source code, examples, and reconstruction behavior should remain public so transmitted packets can be interpreted and reconstructed by third parties.
 
-################################################################################################################################################################
+
 
 ## PRE-ALPHA STATUS SUMMARY
 
@@ -47,7 +47,7 @@ Current Pre-Alpha status:
     - It checks metadata in the `.emeimgout` file before attempting reconstruction.
     - If the file version or patch does not match the Reconstructor's expected version or patch, reconstruction should be cancelled to avoid rendering incompatible packet formats.
 
-################################################################################################################################################################
+
 
 ## PRE-ALPHA ARCHITECTURE INTENT
 
@@ -74,7 +74,7 @@ Important Pre-Alpha distinction:
 
 The Prototype Feeder simulated transmission and receive success internally. The Pre-Alpha direction separates transmit-side feeding from receive-side collection. The future Reader program is expected to handle the receive-side `.emeimgout` creation role.
 
-################################################################################################################################################################
+
 
 ## GENERAL PROTOCOL SPECIFICATION
 
@@ -182,7 +182,7 @@ Priority Metadata Rule:
 
     The Feeder must not transmit [PRIORITY] as drawing packet data.
 
-################################################################################################################################################################
+
 
 ## PRE-ALPHA METADATA HEADER
 
@@ -242,7 +242,7 @@ Reserved Field:
 
     They should not be assigned new meaning without updating this documentation and incrementing the appropriate version or patch field.
 
-################################################################################################################################################################
+
 
 ## FILE TYPES
 
@@ -285,7 +285,7 @@ Reserved Field:
 
     The Reconstructor exports the final reconstructed visible image as a PNG file.
 
-################################################################################################################################################################
+
 
 ## COLOR CODES
 
@@ -339,7 +339,7 @@ Notes:
     Recommended behavior:
         Warn and either ignore the packet or fall back to a safe default color.
 
-################################################################################################################################################################
+
 
 ## SHAPE CODE QUICK REFERENCE
 
@@ -375,7 +375,7 @@ Notes:
     Recommended behavior:
         Warn and ignore the packet.
 
-################################################################################################################################################################
+
 
 ## SHAPE PACKET FORMATS
 
@@ -679,7 +679,7 @@ Notes:
         75%  = 23 in Base-36
         100% = 2S in Base-36
 
-################################################################################################################################################################
+
 
 ## CONSTRUCTOR PROGRAM DOCUMENTATION
 
@@ -739,7 +739,7 @@ Priority Metadata:
 
     The Reconstructor must ignore it for rendering.
 
-################################################################################################################################################################
+
 
 ## FEEDER PROGRAM DOCUMENTATION
 
@@ -782,7 +782,7 @@ Superseded Prototype Behavior:
 
     Those behaviors were useful for prototype robustness testing but are not the primary Pre-Alpha Feeder direction.
 
-################################################################################################################################################################
+
 
 ## READER PROGRAM DOCUMENTATION
 
@@ -814,7 +814,7 @@ Not Yet Specified:
     - Exact malformed-line handling.
     - Exact `.emeimgout` line formatting beyond Reconstructor compatibility requirements.
 
-################################################################################################################################################################
+
 
 ## INTERIM MIDDLEMAN UTILITY
 
@@ -840,7 +840,7 @@ Not Yet Specified:
 
     It should not be treated as a stable part of the EMEIMG protocol until its purpose and behavior are formally defined.
 
-################################################################################################################################################################
+
 
 ## RECONSTRUCTOR PROGRAM DOCUMENTATION
 
@@ -992,7 +992,7 @@ Reconstructor Should Not:
     - transmit packets
     - act as the Reader
 
-################################################################################################################################################################
+
 
 ## PRE-ALPHA END-TO-END WORKFLOW
 
@@ -1038,7 +1038,7 @@ Current / Intended Workflow:
 
     The Reconstructor saves the final visible image as a PNG.
 
-################################################################################################################################################################
+
 
 ## IMPORTANT SEPARATION OF ROLES
 
@@ -1091,7 +1091,7 @@ Rule of Thumb:
 
     Reconstructor decides what successfully recovered data reconstructs.
 
-################################################################################################################################################################
+
 
 ## IMPLEMENTATION NOTES
 
@@ -1170,6 +1170,6 @@ Known Stretch Goals / Future Work:
     - Optional interim middleman utility during WSJT-X integration development.
     - Additional macro shapes, if needed and if shape-code space permits.
 
-################################################################################################################################################################
+
 
 ## END OF PRE-ALPHA DOCUMENTATION
