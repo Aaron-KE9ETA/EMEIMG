@@ -1,13 +1,22 @@
+#!/usr/bin/env python3
 from __future__ import annotations
-'''
-Created on May 27, 2026
-
-@author: Aaron Cocanower KE9ETA
-'''
 """
+EMEIMG Constructor Pre-Alpha
+----------------------------
 A packet-first vector editor for building EMEIMG/JT65B-sized drawing commands.
 
-Packet layout used by this prototype:
+Pre-Alpha file header:
+    EMEIMGVVPGGGG
+
+    EMEIMG = protocol/header identifier
+    VV     = protocol version, two base-36 characters
+    P      = patch number, one base-36 character
+    GGGG   = four-character Maidenhead grid locator
+
+Experimental status is local metadata only. It is appended outside the
+13-character header packet as [EXPERIMENTAL] and must not be transmitted OTA.
+
+Drawing packet layout:
     [I][C][S][payload...]
 
     I = command order index, base-36, one character
@@ -18,12 +27,8 @@ Coordinates use XXYY:
     XX = X coordinate, two base-36 characters, left padded with 0
     YY = Y coordinate, two base-36 characters, left padded with 0
 
-Example text command:
-    03000A00FKE9ETA
-    I=0, C=3 red, S=0 text, X=00A, Y=00F, text=KE9ETA
-
 Run:
-    python ConstructorProto.py
+    python Constructor_PreAlpha.py
 
 Arch Linux Tk dependency:
     sudo pacman -Syu tk
@@ -56,19 +61,14 @@ DEFAULT_SCALE = 1
 MAX_COMMANDS = 36
 PRIORITY_TAG = "[PRIORITY]"
 
-# Hard-coded EMEIMG file/header metadata.
-# Format: EMEIMGVVPE***
-#   EMEIMG = identifier
-#   VV     = two-character base-36 version
-#   P      = one-character base-36 patch
-#   E      = experimental flag; 0 for normal/release output
-#   ***    = currently unused spare characters
-HEADER_IDENTIFIER = "EMEIMG"
-HEADER_VERSION = "00"
-HEADER_PATCH = "0"
-HEADER_EXPERIMENTAL = "0"
-HEADER_SPARE = "***"
-FILE_HEADER = f"{HEADER_IDENTIFIER}{HEADER_VERSION}{HEADER_PATCH}{HEADER_EXPERIMENTAL}{HEADER_SPARE}"
+# Pre-Alpha metadata/header constants.
+HEADER_ID = "EMEIMG"
+EMEIMG_VERSION = "00"
+EMEIMG_PATCH = "0"
+DEFAULT_GRID = "EN60"
+EXPERIMENTAL_TAG = "[EXPERIMENTAL]"
+EXPERIMENTAL_BUILD = True
+HEADER_LEN = 13
 
 
 # Final color dictionary from the project notes.
@@ -214,7 +214,7 @@ def split_priority_tag(command: str) -> Tuple[str, bool]:
 
     [PRIORITY] is protocol metadata, not part of the 13-character packet.
     """
-    command = command.rstrip()
+    command = command.rstrip("\r\n")
     if command.upper().endswith(PRIORITY_TAG):
         return command[: -len(PRIORITY_TAG)].rstrip(), True
     return command, False
@@ -225,6 +225,83 @@ def apply_priority_tag(packet: str, is_priority: bool) -> str:
     packet, _ = split_priority_tag(packet)
     packet = pad_packet(packet)
     return f"{packet}{PRIORITY_TAG}" if is_priority else packet
+
+
+def split_experimental_tag(line: str) -> Tuple[str, bool]:
+    """Return text before [EXPERIMENTAL] and whether that local tag was present."""
+    line = line.rstrip("\r\n")
+    if line.upper().endswith(EXPERIMENTAL_TAG):
+        return line[: -len(EXPERIMENTAL_TAG)].rstrip(), True
+    return line, False
+
+
+def validate_grid_locator(grid: str) -> str:
+    """Validate and normalize a 4-character Maidenhead grid locator."""
+    grid = grid.strip().upper()
+
+    if len(grid) != 4:
+        raise PacketError("Grid locator must be exactly 4 characters, for example EN60.")
+
+    if not ("A" <= grid[0] <= "R" and "A" <= grid[1] <= "R"):
+        raise PacketError("Grid locator must begin with two Maidenhead field letters A-R, for example EN60.")
+
+    if not (grid[2].isdigit() and grid[3].isdigit()):
+        raise PacketError("Grid locator must end with two digits, for example EN60.")
+
+    return grid
+
+
+def build_emeimg_header(grid: str) -> str:
+    """Build the 13-character EMEIMG header packet: EMEIMGVVPGGGG."""
+    grid = validate_grid_locator(grid)
+    header = f"{HEADER_ID}{EMEIMG_VERSION}{EMEIMG_PATCH}{grid}"
+
+    if len(header) != HEADER_LEN:
+        raise PacketError(f"Header must be {HEADER_LEN} characters; got {len(header)}.")
+
+    return header
+
+
+def build_file_header(grid: str) -> str:
+    """Build file header line, with local experimental metadata if enabled."""
+    header = build_emeimg_header(grid)
+    return f"{header}{EXPERIMENTAL_TAG}" if EXPERIMENTAL_BUILD else header
+
+
+def parse_emeimg_header_line(line: str) -> Optional[Dict[str, object]]:
+    """Parse EMEIMG header lines and return metadata.
+
+    Accepts either:
+        EMEIMGVVPGGGG
+        EMEIMGVVPGGGG[EXPERIMENTAL]
+
+    Returns None if the line is not an EMEIMG header.
+    """
+    raw = line.rstrip("\r\n")
+    header_text, is_experimental = split_experimental_tag(raw)
+
+    if not header_text.startswith(HEADER_ID):
+        return None
+
+    if len(header_text) != HEADER_LEN:
+        raise PacketError(f"EMEIMG header must be {HEADER_LEN} characters: {raw!r}")
+
+    version = header_text[6:8]
+    patch = header_text[8]
+    grid = validate_grid_locator(header_text[9:13])
+
+    for ch in version + patch:
+        if ch not in BASE36:
+            raise PacketError(f"Header version/patch must use Base-36 characters: {raw!r}")
+
+    return {
+        "raw": raw,
+        "header": header_text,
+        "version": version,
+        "patch": patch,
+        "grid": grid,
+        "experimental": is_experimental,
+    }
 
 
 def normalize_packet_order(packet: str, index: int) -> str:
@@ -290,10 +367,10 @@ def draw_star(draw, x: int, y: int, radius: int, scale: int, color: str, canvas_
     diag = round(r / math.sqrt(2))
 
     lines = [
-        ((x, y - r), (x, y + r)),                          # vertical
-        ((x - r, y), (x + r, y)),                          # horizontal
-        ((x - diag, y - diag), (x + diag, y + diag)),      # NW/SE
-        ((x + diag, y - diag), (x - diag, y + diag)),      # NE/SW
+        ((x, y - r), (x, y + r)),                         # vertical
+        ((x - r, y), (x + r, y)),                         # horizontal
+        ((x - diag, y - diag), (x + diag, y + diag)),     # NW/SE
+        ((x + diag, y - diag), (x - diag, y + diag)),     # NE/SW
     ]
     for p1, p2 in lines:
         draw_line(draw, p1, p2, color, width=3, canvas_kind=canvas_kind)
@@ -617,7 +694,6 @@ def render_packet(packet: str, target, canvas_kind: str = "tk"):
     packet = pad_packet(packet)
     validate_packet(packet)
 
-    order_code = packet[0]
     color_code = packet[1]
     shape = packet[2]
     color = COLOR_TABLE[color_code][1]
@@ -754,21 +830,9 @@ def render_packet(packet: str, target, canvas_kind: str = "tk"):
 class EMEIMGEditor(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("EMEIMG Construct GUI")
-        self.geometry("1320x860")
-        self.minsize(1180, 760)
-        # Start maximized, not fullscreen.
-        # This keeps the title bar/window controls visible.
-        try:
-            self.state("zoomed")  # Works on Windows and some Tk setups.
-        except tk.TclError:
-            try:
-                self.attributes("-zoomed", True)  # Common on Linux/X11.
-            except tk.TclError:
-                self.geometry("1320x860")  # Fallback if the window manager ignores maximize.
-
-        self.minsize(1180, 760)
-
+        self.title("EMEIMG Constructor Pre-Alpha")
+        self.geometry("1440x900")
+        self.minsize(1240, 760)
 
         self.selected_color = "0"
         self.selected_shape = SHAPES[0]
@@ -776,6 +840,8 @@ class EMEIMGEditor(tk.Tk):
         self.commands: List[str] = []
         self.selected_layer_index: Optional[int] = None
 
+        self.var_grid = tk.StringVar(value=DEFAULT_GRID)
+        self.var_header_preview = tk.StringVar(value="")
         self.var_packet = tk.StringVar()
         self.var_text = tk.StringVar(value="KE9ETA")
         self.var_orientation = tk.IntVar(value=0)
@@ -791,6 +857,8 @@ class EMEIMGEditor(tk.Tk):
         self.var_status = tk.StringVar(value="Select color + shape, then click the canvas.")
 
         self._build_ui()
+        self.var_grid.trace_add("write", lambda *_: self._refresh_header_preview())
+        self._refresh_header_preview()
         self._refresh_controls_from_shape()
         self._render_all()
 
@@ -804,7 +872,7 @@ class EMEIMGEditor(tk.Tk):
 
         ttk.Label(left, text="Shapes").grid(row=0, column=0, sticky="w")
         shape_frame = ttk.Frame(left)
-        shape_frame.grid(row=1, column=0, sticky="nsew")
+        shape_frame.grid(row=1, column=0, sticky="ns")
         shape_frame.columnconfigure(0, weight=1)
         shape_frame.columnconfigure(1, weight=1)
         for i, shape in enumerate(SHAPES):
@@ -869,10 +937,31 @@ class EMEIMGEditor(tk.Tk):
 
         right = ttk.Frame(self, padding=6)
         right.grid(row=0, column=2, sticky="ns")
-        right.rowconfigure(1, weight=1)
+        right.rowconfigure(2, weight=1)
 
-        ttk.Label(right, text="Layers / Packets").grid(row=0, column=0, sticky="w")
-        ttk.Label(right, text=f"File Header: {FILE_HEADER}").grid(row=1, column=0, sticky="w")
+        header_box = ttk.LabelFrame(right, text="Header Metadata", padding=8)
+        header_box.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        header_box.columnconfigure(1, weight=1)
+
+        ttk.Label(header_box, text="Version").grid(row=0, column=0, sticky="w")
+        ttk.Label(header_box, text=EMEIMG_VERSION).grid(row=0, column=1, sticky="w")
+
+        ttk.Label(header_box, text="Patch").grid(row=1, column=0, sticky="w")
+        ttk.Label(header_box, text=EMEIMG_PATCH).grid(row=1, column=1, sticky="w")
+
+        ttk.Label(header_box, text="Grid").grid(row=2, column=0, sticky="w")
+        ttk.Entry(header_box, textvariable=self.var_grid, width=8).grid(row=2, column=1, sticky="w")
+
+        ttk.Label(header_box, text="Header").grid(row=3, column=0, sticky="w")
+        ttk.Label(header_box, textvariable=self.var_header_preview).grid(row=3, column=1, sticky="w")
+
+        ttk.Label(
+            header_box,
+            text="Pre-Alpha: local [EXPERIMENTAL] file tag enabled",
+            foreground="#8a5a00",
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
+
+        ttk.Label(right, text="Layers / Packets").grid(row=1, column=0, sticky="w")
         self.layer_list = tk.Listbox(right, width=34, height=18)
         self.layer_list.grid(row=2, column=0, sticky="nsew")
         self.layer_list.bind("<<ListboxSelect>>", self._on_layer_select)
@@ -950,6 +1039,22 @@ class EMEIMGEditor(tk.Tk):
         b = int(hex_color[5:7], 16)
         lum = 0.299 * r + 0.587 * g + 0.114 * b
         return "black" if lum > 150 else "white"
+
+    def _refresh_header_preview(self):
+        try:
+            self.var_header_preview.set(build_file_header(self.var_grid.get()))
+        except PacketError:
+            self.var_header_preview.set("Invalid grid")
+
+    def _get_valid_grid(self) -> Optional[str]:
+        try:
+            grid = validate_grid_locator(self.var_grid.get())
+            self.var_grid.set(grid)
+            self._refresh_header_preview()
+            return grid
+        except PacketError as exc:
+            messagebox.showerror("Invalid grid locator", str(exc))
+            return None
 
     def _get_crater_color_code(self) -> str:
         code = self.var_crater_color.get().strip().upper()
@@ -1289,6 +1394,10 @@ class EMEIMGEditor(tk.Tk):
             self.canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill="red", outline="red", tags="pending")
 
     def _save_commands(self):
+        grid = self._get_valid_grid()
+        if grid is None:
+            return
+
         path = filedialog.asksaveasfilename(
             defaultextension=".emeimg",
             filetypes=[("EMEIMG command files", "*.emeimg"), ("Text files", "*.txt"), ("All files", "*.*")],
@@ -1296,11 +1405,13 @@ class EMEIMGEditor(tk.Tk):
         if not path:
             return
 
+        header_line = build_file_header(grid)
+
         with open(path, "w", encoding="utf-8") as f:
-            f.write(FILE_HEADER + "\n")
+            f.write(header_line + "\n")
             for packet in self.commands:
                 f.write(packet + "\n")
-        self._set_status(f"Saved {len(self.commands)} commands with header {FILE_HEADER} to {path}")
+        self._set_status(f"Saved header {header_line!r} and {len(self.commands)} commands to {path}")
 
     def _load_commands(self):
         path = filedialog.askopenfilename(
@@ -1310,15 +1421,35 @@ class EMEIMGEditor(tk.Tk):
             return
 
         loaded: List[str] = []
+        loaded_header: Optional[Dict[str, object]] = None
+
         with open(path, "r", encoding="utf-8") as f:
             for raw in f:
-                line = raw.rstrip("\n")
-                stripped = line.strip().upper()
-                if not stripped or stripped == "EMEIMGV1" or stripped == FILE_HEADER or stripped.startswith(HEADER_IDENTIFIER) or line.lstrip().startswith("#"):
+                line = raw.rstrip("\r\n")
+
+                if not line.strip() or line.lstrip().startswith("#"):
                     continue
+
+                try:
+                    header = parse_emeimg_header_line(line)
+                except PacketError as e:
+                    messagebox.showwarning("Skipped invalid EMEIMG header", f"{line!r}\n\n{e}")
+                    continue
+
+                if header is not None:
+                    loaded_header = header
+                    self.var_grid.set(str(header["grid"]))
+                    self._refresh_header_preview()
+                    continue
+
+                # Tolerate an old prototype header if it appears in archived test files.
+                if line.strip().upper() == "EMEIMGV1":
+                    continue
+
                 if len(loaded) >= MAX_COMMANDS:
                     messagebox.showwarning("Command limit", "Only the first 36 commands were loaded.")
                     break
+
                 packet = line.rstrip()
                 base_packet, is_priority = split_priority_tag(packet)
                 packet = apply_priority_tag(base_packet, is_priority)
@@ -1334,7 +1465,14 @@ class EMEIMGEditor(tk.Tk):
         self._refresh_layer_list()
         self._update_selected_label()
         self._render_all()
-        self._set_status(f"Loaded {len(loaded)} commands from {path} and normalized order indexes.")
+
+        if loaded_header:
+            exp_note = " with local experimental tag" if loaded_header.get("experimental") else ""
+            self._set_status(
+                f"Loaded {len(loaded)} commands from {path}. Header {loaded_header['header']}{exp_note}."
+            )
+        else:
+            self._set_status(f"Loaded {len(loaded)} commands from {path} and normalized order indexes. No header found.")
 
     def _export_png(self):
         if Image is None or ImageDraw is None:
