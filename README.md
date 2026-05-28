@@ -12,3 +12,6 @@ The broader vision of EMEIMG is to treat constrained digital radio payloads as a
 ## Pre-Alpha Branch
 
 Pre-Alpha is the architectural preparation phase for EMEIMG. Its purpose is to define the module boundaries, file formats, metadata conventions, packet flow, and parser behavior needed before Alpha implementation begins. Pre-Alpha does not attempt to guarantee reliable over-the-air transmission; it prepares the project so Alpha can focus on implementation, integration, and end-to-end testing.
+
+# Current Status Pre-Alpha
+In development
