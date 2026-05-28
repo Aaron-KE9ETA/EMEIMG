@@ -8,6 +8,8 @@ Created on May 26, 2026
 
 import math
 import os
+from datetime import datetime
+import tkinter as tk
 from tkinter import Tk, filedialog
 
 from PIL import Image, ImageDraw, ImageFont
@@ -16,18 +18,22 @@ CANVAS_SIZE = (720, 480)
 BACKGROUND = "white"
 LINE_WIDTH = 3
 PRIORITY_TAG = "[PRIORITY]"
+EXPERIMENTAL_TAG = "[EXPERIMENTAL]"
+LOCAL_METADATA_TAGS = (PRIORITY_TAG, EXPERIMENTAL_TAG)
 
 # Reconstructor compatibility metadata.
 # These must match the VV and P fields in the .emeimgout EMEIMG header packet.
 #
 # Header packet format:
-#   EMEIMGVVPE***
+#   EMEIMGVVPGGGG
 #
-# Example for version 00, patch 0, non-experimental:
-#   EMEIMG0000***
+# Example for version 00, patch 0, grid EN60:
+#   EMEIMG000EN60
+#
+# Experimental status is local metadata only, outside the 13-character packet:
+#   EMEIMG000EN60[EXPERIMENTAL]
 RECONSTRUCTOR_VERSION = "00"
 RECONSTRUCTOR_PATCH = "0"
-RECONSTRUCTOR_EXPERIMENTAL_FLAG = "0"
 
 HEADER_IDENTIFIER = "EMEIMG"
 HEADER_LENGTH = 13
@@ -181,6 +187,20 @@ def is_base36_text(value):
         return False
 
 
+def is_maidenhead_4(value):
+    value = str(value).strip().upper()
+    if len(value) != 4:
+        return False
+
+    # Four-character Maidenhead locator: two letters A-R, then two digits.
+    return (
+        "A" <= value[0] <= "R"
+        and "A" <= value[1] <= "R"
+        and value[2].isdigit()
+        and value[3].isdigit()
+    )
+
+
 def normalize_version(value):
     value = str(value).strip().upper()
 
@@ -194,43 +214,237 @@ def normalize_patch(value):
     return str(value).strip().upper()
 
 
+def normalize_grid(value):
+    return str(value).strip().upper()
+
+
+def parse_bool_metadata(value):
+    value = str(value).strip().upper()
+    return value in {"1", "TRUE", "YES", "Y", "ON", "EXPERIMENTAL"}
+
+
+def remove_trailing_local_tags(value):
+    """Remove known local metadata tags from the end of a line.
+
+    Tags such as [PRIORITY] and [EXPERIMENTAL] are local file/tool metadata.
+    They are not part of any 13-character over-the-air EMEIMG packet.
+    """
+    tags = set()
+    changed = True
+
+    while changed:
+        changed = False
+        upper = value.upper()
+
+        for tag in LOCAL_METADATA_TAGS:
+            if upper.endswith(tag):
+                tags.add(tag)
+                value = value[: -len(tag)]
+                changed = True
+                break
+
+        # Allow harmless whitespace after a tag, but do not strip packet spaces
+        # unless a tag was just removed.
+        if changed:
+            value = value.rstrip()
+
+    return value, tags
+
+
 def unwrap_packet_line(line):
-    line = line.strip()
+    """Recover a packet/header line while preserving meaningful packet spaces.
 
-    if line == "":
+    Accepted input examples:
+        PACKET
+        PACKET[PRIORITY]
+        EMEIMG000EN60[EXPERIMENTAL]
+        "PACKET",
+        "PACKET"
+        [PACKET]
+
+    Shape 0 text packets may contain trailing spaces inside the 13-character
+    packet, so this function avoids line.strip() on the packet body.
+    """
+    line = line.rstrip("\r\n")
+
+    if line.strip() == "":
         return None
 
-    if line.startswith("#") or line.startswith("//"):
+    left_stripped = line.lstrip()
+    if left_stripped.startswith("#") or left_stripped.startswith("//"):
         return None
+
+    working = line
+    tags = set()
 
     # Tolerate a trailing comma from Python-list style exports.
-    if line.endswith(","):
-        line = line[:-1].strip()
+    comma_check = working.rstrip()
+    if comma_check.endswith(","):
+        working = comma_check[:-1]
 
-    # Tolerate priority marker either before or after quoting/bracketing.
-    if line.endswith(PRIORITY_TAG):
-        line = line[:-len(PRIORITY_TAG)].strip()
+    working, found_tags = remove_trailing_local_tags(working)
+    tags.update(found_tags)
 
     # Feeder export style: "PACKET"
-    if line.startswith('"') and line.endswith('"'):
-        line = line[1:-1].strip()
+    outer = working.strip()
+    if outer.startswith('"') and outer.endswith('"') and len(outer) >= 2:
+        working = outer[1:-1]
 
     # Also tolerate .emeimgout style: [PACKET]
-    if line.startswith("[") and line.endswith("]"):
-        line = line[1:-1].strip()
+    outer = working.strip()
+    if outer.startswith("[") and outer.endswith("]") and len(outer) >= 2:
+        working = outer[1:-1]
 
-    if line.endswith(PRIORITY_TAG):
-        line = line[:-len(PRIORITY_TAG)].strip()
+    working, found_tags = remove_trailing_local_tags(working)
+    tags.update(found_tags)
 
-    return line
+    # If the packet was indented or surrounded by harmless whitespace, recover it.
+    # Do not do this to valid 13-character packets that intentionally end in spaces.
+    if len(working) != HEADER_LENGTH and len(working.strip()) == HEADER_LENGTH:
+        working = working.strip()
+
+    return working, tags
 
 
 def is_emeimg_header(packet):
     return packet.upper().startswith(HEADER_IDENTIFIER)
 
 
-def parse_emeimg_header(packet, line_number=None):
+def ask_cancel_or_proceed(title, message):
+    """Show a modal warning window with explicit Cancel / Proceed buttons.
+
+    This uses the root Tk window directly instead of a withdrawn-root Toplevel.
+    On some Linux window managers, a Toplevel owned by a withdrawn root can be
+    created but not visibly raised, which looks like the program simply stopped.
+    """
+    try:
+        root = Tk()
+    except tk.TclError as exc:
+        print(f"Warning dialog could not be opened: {exc}")
+        print(message)
+        answer = input("Type PROCEED to continue reconstruction, or press Enter to cancel: ")
+        return answer.strip().upper() == "PROCEED"
+
+    result = {"proceed": False}
+
+    root.title(title)
+    root.resizable(True, True)
+
+    try:
+        root.attributes("-topmost", True)
+    except tk.TclError:
+        pass
+
+    main = tk.Frame(root, padx=18, pady=16)
+    main.pack(fill="both", expand=True)
+
+    message_label = tk.Label(
+        main,
+        text=message,
+        justify="left",
+        anchor="w",
+        wraplength=620,
+    )
+    message_label.pack(fill="both", expand=True)
+
+    button_frame = tk.Frame(main, pady=12)
+    button_frame.pack(fill="x")
+
+    def cancel():
+        result["proceed"] = False
+        root.destroy()
+
+    def proceed():
+        result["proceed"] = True
+        root.destroy()
+
+    proceed_button = tk.Button(button_frame, text="Proceed", width=12, command=proceed)
+    proceed_button.pack(side="right", padx=(6, 0))
+
+    cancel_button = tk.Button(button_frame, text="Cancel", width=12, command=cancel)
+    cancel_button.pack(side="right", padx=(0, 6))
+
+    root.protocol("WM_DELETE_WINDOW", cancel)
+
+    root.update_idletasks()
+    width = max(root.winfo_width(), 680)
+    height = max(root.winfo_height(), 260)
+    screen_w = root.winfo_screenwidth()
+    screen_h = root.winfo_screenheight()
+    x = max(0, (screen_w - width) // 2)
+    y = max(0, (screen_h - height) // 2)
+    root.geometry(f"{width}x{height}+{x}+{y}")
+
+    try:
+        root.lift()
+        root.focus_force()
+        proceed_button.focus_set()
+    except tk.TclError:
+        pass
+
+    root.mainloop()
+    return result["proceed"]
+
+def ask_proceed_with_header_warning(reason, metadata, filename):
+    expected_version = normalize_version(RECONSTRUCTOR_VERSION)
+    expected_patch = normalize_patch(RECONSTRUCTOR_PATCH)
+
+    raw_header = metadata.get("raw", "UNKNOWN") if metadata else "UNKNOWN"
+    file_version = normalize_version(metadata.get("version", "??")) if metadata else "??"
+    file_patch = normalize_patch(metadata.get("patch", "?")) if metadata else "?"
+    file_grid = metadata.get("grid", "????") if metadata else "????"
+
+    message = (
+        "This file does not use this Reconstructor version's expected EMEIMG header.\n\n"
+        f"File: {filename}\n"
+        f"Header: {raw_header}\n"
+        f"File metadata: version {file_version}, patch {file_patch}, grid {file_grid}\n"
+        f"This Reconstructor expects: version {expected_version}, patch {expected_patch}\n\n"
+        f"Reason: {reason}\n\n"
+        "Rendering with a mismatched or unrecognized header can cause errors, "
+        "incorrect geometry, wrong colors, or an incomplete image.\n\n"
+        "Cancel reconstruction, or proceed anyway?"
+    )
+
+    return ask_cancel_or_proceed("EMEIMG Header Mismatch", message)
+
+
+def parse_unrecognized_emeimg_header(packet, error_message, line_number=None, local_tags=None):
+    """Keep enough metadata to allow an operator-warning proceed path."""
+    raw = packet.strip().upper()
+    local_tags = local_tags or set()
+
+    metadata = {
+        "raw": raw,
+        "header_error": str(error_message),
+        "experimental": EXPERIMENTAL_TAG in local_tags,
+        "line_number": line_number,
+        "source": "unrecognized EMEIMG header packet",
+    }
+
+    if raw.startswith(HEADER_IDENTIFIER) and len(raw) >= 9:
+        version = raw[6:8]
+        patch = raw[8]
+
+        if len(version) == 2 and is_base36_text(version):
+            metadata["version"] = normalize_version(version)
+
+        if len(patch) == 1 and is_base36_text(patch):
+            metadata["patch"] = normalize_patch(patch)
+
+        if len(raw) >= HEADER_LENGTH:
+            candidate_grid = raw[9:13]
+            if is_maidenhead_4(candidate_grid):
+                metadata["grid"] = normalize_grid(candidate_grid)
+            else:
+                metadata["grid"] = candidate_grid
+
+    return metadata
+
+
+def parse_emeimg_header(packet, line_number=None, local_tags=None):
     packet = packet.strip().upper()
+    local_tags = local_tags or set()
 
     location = f" on line {line_number}" if line_number is not None else ""
 
@@ -246,8 +460,7 @@ def parse_emeimg_header(packet, line_number=None):
 
     version = packet[6:8]
     patch = packet[8]
-    experimental = packet[9]
-    spare = packet[10:13]
+    grid = packet[9:13]
 
     if not is_base36_text(version):
         raise ValueError(f"Invalid EMEIMG version field{location}: {repr(version)}")
@@ -255,15 +468,18 @@ def parse_emeimg_header(packet, line_number=None):
     if not is_base36_text(patch):
         raise ValueError(f"Invalid EMEIMG patch field{location}: {repr(patch)}")
 
-    if not is_base36_text(experimental):
-        raise ValueError(f"Invalid EMEIMG experimental flag{location}: {repr(experimental)}")
+    if not is_maidenhead_4(grid):
+        raise ValueError(
+            f"Invalid EMEIMG grid field{location}: {repr(grid)}. "
+            "Expected EMEIMGVVPGGGG, for example EMEIMG000EN60."
+        )
 
     return {
         "raw": packet,
         "version": normalize_version(version),
         "patch": normalize_patch(patch),
-        "experimental": experimental,
-        "spare": spare,
+        "grid": normalize_grid(grid),
+        "experimental": EXPERIMENTAL_TAG in local_tags,
         "line_number": line_number,
         "source": "EMEIMG header packet",
     }
@@ -299,8 +515,12 @@ def parse_metadata_comment(line, line_number=None):
         metadata["patch"] = normalize_patch(value)
         return metadata
 
-    if key in {"EMEIMG_EXPERIMENTAL", "EXPERIMENTAL", "E"}:
-        metadata["experimental"] = value
+    if key in {"EMEIMG_GRID", "GRID", "GGGG", "MAIDENHEAD"}:
+        metadata["grid"] = normalize_grid(value)
+        return metadata
+
+    if key in {"EMEIMG_EXPERIMENTAL", "EXPERIMENTAL"}:
+        metadata["experimental"] = parse_bool_metadata(value)
         return metadata
 
     return None
@@ -313,7 +533,7 @@ def merge_metadata(existing, incoming):
     if existing is None:
         return dict(incoming)
 
-    for key in ("version", "patch", "experimental"):
+    for key in ("version", "patch", "grid"):
         if key not in incoming:
             continue
 
@@ -324,8 +544,16 @@ def merge_metadata(existing, incoming):
 
         existing[key] = incoming[key]
 
+    # Local experimental metadata is additive. If any source marks the file as
+    # experimental, keep it marked experimental.
+    if "experimental" in incoming:
+        existing["experimental"] = bool(existing.get("experimental", False) or incoming["experimental"])
+
     if "raw" in incoming:
         existing["raw"] = incoming["raw"]
+
+    if "header_error" in incoming:
+        existing["header_error"] = incoming["header_error"]
 
     existing["source"] = incoming.get("source", existing.get("source", "metadata"))
     existing["line_number"] = incoming.get("line_number", existing.get("line_number"))
@@ -339,15 +567,19 @@ def validate_metadata_compatibility(metadata, filename):
 
     if metadata is None:
         if REQUIRE_HEADER_METADATA:
-            print(
-                "Metadata check failed: no EMEIMG version/patch metadata was found in the input file."
+            reason_text = (
+                "no EMEIMG version/patch/grid metadata was found in the input file; "
+                f"expected a 13-character header packet like {HEADER_IDENTIFIER}{expected_version}{expected_patch}EN60"
             )
-            print(
-                "Expected a 13-character header packet like "
-                f"{HEADER_IDENTIFIER}{expected_version}{expected_patch}{RECONSTRUCTOR_EXPERIMENTAL_FLAG}***"
-            )
-            print("Reconstruction cancelled to avoid using the wrong packet specification.")
-            return False
+            print(f"Metadata warning: {reason_text}")
+            proceed = ask_proceed_with_header_warning(reason_text, None, filename)
+
+            if not proceed:
+                print("Reconstruction cancelled by user after missing-header warning.")
+                return False
+
+            print("User chose to proceed despite missing EMEIMG header metadata.")
+            return True
 
         print("Warning: no EMEIMG metadata found; continuing because REQUIRE_HEADER_METADATA is False.")
         return True
@@ -357,33 +589,54 @@ def validate_metadata_compatibility(metadata, filename):
         missing_fields.append("version")
     if "patch" not in metadata:
         missing_fields.append("patch")
+    if "grid" not in metadata:
+        missing_fields.append("grid")
 
-    if missing_fields:
+    if missing_fields and "header_error" not in metadata:
         print(f"Metadata check failed: missing {', '.join(missing_fields)} in {filename}.")
         return False
 
-    file_version = normalize_version(metadata["version"])
-    file_patch = normalize_patch(metadata["patch"])
+    file_version = normalize_version(metadata.get("version", "??"))
+    file_patch = normalize_patch(metadata.get("patch", "?"))
+    file_grid = metadata.get("grid", "????")
 
     print(
-        f"File metadata: EMEIMG version {file_version}, patch {file_patch}"
+        f"File metadata: EMEIMG version {file_version}, patch {file_patch}, grid {file_grid}"
     )
     print(
         f"Reconstructor: EMEIMG version {expected_version}, patch {expected_patch}"
     )
 
-    if file_version != expected_version or file_patch != expected_patch:
-        print("Metadata check failed: file version/patch does not match this Reconstructor.")
-        print("Reconstruction cancelled.")
-        return False
+    warning_reasons = []
 
-    experimental = metadata.get("experimental")
-    if experimental is not None and experimental != RECONSTRUCTOR_EXPERIMENTAL_FLAG:
+    if "header_error" in metadata:
+        warning_reasons.append(metadata["header_error"])
+
+    if file_version != expected_version or file_patch != expected_patch:
+        warning_reasons.append("file version/patch does not match this Reconstructor")
+
+    if file_grid != "????" and not is_maidenhead_4(file_grid):
+        warning_reasons.append(f"invalid or unrecognized Maidenhead grid locator {file_grid!r}")
+
+    if missing_fields:
+        warning_reasons.append(f"missing metadata field(s): {', '.join(missing_fields)}")
+
+    if warning_reasons:
+        reason_text = "; ".join(warning_reasons)
+        print(f"Metadata warning: {reason_text}")
+        proceed = ask_proceed_with_header_warning(reason_text, metadata, filename)
+
+        if not proceed:
+            print("Reconstruction cancelled by user after header mismatch warning.")
+            return False
+
+        print("User chose to proceed despite header mismatch warning.")
+
+    if metadata.get("experimental", False):
         print(
-            f"Warning: input file experimental flag is {experimental}; "
-            f"this Reconstructor default is {RECONSTRUCTOR_EXPERIMENTAL_FLAG}."
+            "Local metadata: EXPERIMENTAL file marker detected. "
+            "This marker is not part of the OTA packet."
         )
-        print("Version and patch match, so reconstruction will continue.")
 
     print("Metadata check passed.")
     return True
@@ -401,13 +654,19 @@ def load_commands_from_file(filename):
             if comment_metadata is not None:
                 continue
 
-            packet = unwrap_packet_line(line)
+            packet_info = unwrap_packet_line(line)
 
-            if packet is None:
+            if packet_info is None:
                 continue
 
+            packet, local_tags = packet_info
+
             if is_emeimg_header(packet):
-                header_metadata = parse_emeimg_header(packet, line_number)
+                try:
+                    header_metadata = parse_emeimg_header(packet, line_number, local_tags)
+                except ValueError as exc:
+                    print(f"Header warning: {exc}")
+                    header_metadata = parse_unrecognized_emeimg_header(packet, exc, line_number, local_tags)
                 metadata = merge_metadata(metadata, header_metadata)
                 continue
 
@@ -433,6 +692,17 @@ def load_commands():
     commands, metadata = load_commands_from_file(filename)
     return commands, filename, metadata
 
+
+def build_timestamp_output_path(input_filename):
+    """Return an ISO-like timestamp filename such as 202605280016.png."""
+    timestamp = datetime.now().strftime("%Y%m%d%H%M")
+
+    if input_filename:
+        output_dir = os.path.dirname(input_filename)
+    else:
+        output_dir = os.getcwd()
+
+    return os.path.join(output_dir, f"{timestamp}.png")
 
 
 def parse(packet):
@@ -604,7 +874,8 @@ def parse(packet):
                 "color": color,
                 "x": b36_pair(data[0:2]),
                 "y": b36_pair(data[2:4]),
-                "scale": b36(data[4]),
+                "orientation": b36(data[4]),
+                "scale": b36(data[5]),
                 "raw": packet,
             }
 
@@ -1124,22 +1395,22 @@ def render_moon(parsed, draw):
         )
 
 def render_double_box(parsed, draw):
-    x1 = parsed["x1"]
-    y1 = parsed["y1"]
-    x2 = parsed["x2"]
-    y2 = parsed["y2"]
+    left = min(parsed["x1"], parsed["x2"])
+    right = max(parsed["x1"], parsed["x2"])
+    top = min(parsed["y1"], parsed["y2"])
+    bottom = max(parsed["y1"], parsed["y2"])
     percent = max(0, min(100, parsed["percent"]))
 
-    divider_y = y1 + round((y2 - y1) * percent / 100)
+    divider_y = top + round((bottom - top) * percent / 100)
     
     draw.rectangle(
-        (x1, y1, x2, y2),
+        (left, top, right, bottom),
         outline=parsed["color"],
         width=LINE_WIDTH,
     )
 
     draw.line(
-        (x1, divider_y, x2, divider_y),
+        (left, divider_y, right, divider_y),
         fill=parsed["color"],
         width=LINE_WIDTH,
     )
@@ -1197,7 +1468,10 @@ def deduplicate_commands(commands):
 
 
 def main():
-    print(f"EMEIMG Reconstructor Pre-Alpha v{normalize_version(RECONSTRUCTOR_VERSION)} patch {normalize_patch(RECONSTRUCTOR_PATCH)}")
+    print(
+        f"EMEIMG Reconstructor Pre-Alpha v{normalize_version(RECONSTRUCTOR_VERSION)} "
+        f"patch {normalize_patch(RECONSTRUCTOR_PATCH)}"
+    )
 
     try:
         commands, input_filename, metadata = load_commands()
@@ -1229,12 +1503,7 @@ def main():
     for parsed in parsed_commands:
         render(parsed, draw)
 
-    if input_filename:
-        base_name = os.path.splitext(os.path.basename(input_filename))[0]
-        output_filename = f"{base_name}_reconstructed.png"
-        output_path = os.path.join(os.path.dirname(input_filename), output_filename)
-    else:
-        output_path = "output_image.png"
+    output_path = build_timestamp_output_path(input_filename)
 
     img.save(output_path)
     img.close()
