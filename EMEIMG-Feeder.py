@@ -389,13 +389,23 @@ def build_station_id_packet(callsign: str) -> EMEIMGPacket:
         eof=False,
     )
 
-
 def build_eof_packet(callsign: str) -> EMEIMGPacket:
-    text = f"{callsign} EOF73"
+    """
+    Build the required closing/footer packet:
+
+        [CALLSIGN] END
+
+    Example:
+        KE9ETA END
+
+    The payload is padded to 13 characters for JT65B FreeText handling.
+    """
+
+    text = f"{callsign} END"
 
     if len(text) > 13:
         raise ValueError(
-            f"EOF packet is too long for 13 characters: {text!r}"
+            f"END packet is too long for 13 characters: {text!r}"
         )
 
     return EMEIMGPacket(
@@ -405,7 +415,8 @@ def build_eof_packet(callsign: str) -> EMEIMGPacket:
         source_line=0,
         station_id=False,
         eof=True,
-    )
+)
+
 
 
 def normalize_line_to_packet(line: str, line_no: int = 0) -> Optional[EMEIMGPacket]:
