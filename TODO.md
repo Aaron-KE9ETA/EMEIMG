@@ -4,11 +4,7 @@ This file tracks planned EMEIMG features, implementation work, and protocol chan
 
 ## Priority TODO
 
-### 1. Update documentation for new footer
-
-changed footer from [callsign] EOF73 to [callsign] END.  This was to improve readability of transmissions
-
-### 2. Implement reader
+### 1. Implement reader
 
 Create or integrate software for receiving decoded JT65B text from WSJT-X and saving it locally for reconstruction.
 
