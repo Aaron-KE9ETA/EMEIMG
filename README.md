@@ -15,3 +15,4 @@ Pre-Alpha is the architectural preparation phase for EMEIMG. Its purpose is to d
 
 # Current Status Pre-Alpha
 In development
+Presently on back burner while I prepare for Field Day
